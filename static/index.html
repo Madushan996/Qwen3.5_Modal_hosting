@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gemma Chat</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #1a1a1a;
+      --sidebar-bg:   #111111;
+      --surface:      #252525;
+      --surface2:     #2e2e2e;
+      --border:       #303030;
+      --text:         #e8e8e8;
+      --text2:        #888888;
+      --text3:        #555555;
+      --accent:       #9b6dff;
+      --accent-dim:   #7c3aed33;
+      --user-bg:      #1a3050;
+      --user-text:    #c9e3ff;
+      --code-bg:      #0d1117;
+      --code-border:  #21262d;
+      --send-bg:      #7c3aed;
+      --send-hover:   #6d28d9;
+      --danger:       #f87171;
+      --radius:       12px;
+      --font:         -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      --mono:         'Fira Code', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Layout ─────────────────────────────────────────────────────── */
+
+    .app { display: flex; height: 100vh; overflow: hidden; }
+
+    /* ── Sidebar ────────────────────────────────────────────────────── */
+
+    .sidebar {
+      width: 260px;
+      min-width: 260px;
+      background: var(--sidebar-bg);
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+    }
+
+    .sidebar-top { padding: 16px; }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding: 4px 0;
+    }
+    .logo-icon {
+      width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
+      background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px; font-weight: 800; color: #fff; letter-spacing: -0.5px;
+    }
+    .logo-label { line-height: 1.2; }
+    .logo-name  { font-size: 15px; font-weight: 600; color: var(--text); }
+    .logo-sub   { font-size: 11px; color: var(--text2); }
+
+    .new-chat-btn {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: var(--font);
+      display: flex; align-items: center; gap: 8px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .new-chat-btn:hover { background: var(--surface); border-color: #444; }
+
+    .sidebar-section { padding: 8px; flex: 1; overflow-y: auto; }
+    .section-label {
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text3);
+      padding: 8px 8px 4px;
+      font-weight: 600;
+    }
+
+    .hist-item {
+      padding: 8px 10px; border-radius: 7px; cursor: pointer;
+      font-size: 13px; color: var(--text2);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      transition: background 0.1s, color 0.1s;
+      display: flex; align-items: center; gap: 7px;
+    }
+    .hist-item svg { flex-shrink: 0; opacity: 0.5; }
+    .hist-item:hover  { background: var(--surface); color: var(--text); }
+    .hist-item.active { background: var(--surface2); color: var(--text); }
+
+    .sidebar-footer {
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+    }
+    .model-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--surface); padding: 5px 10px; border-radius: 20px;
+      border: 1px solid var(--border); font-size: 11px; color: var(--text2);
+    }
+    .dot-live {
+      width: 6px; height: 6px; border-radius: 50%; background: #22c55e;
+      box-shadow: 0 0 4px #22c55e88;
+    }
+
+    /* ── Main area ──────────────────────────────────────────────────── */
+
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    .chat-header {
+      padding: 13px 22px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--bg);
+      flex-shrink: 0;
+    }
+    .header-left { display: flex; align-items: center; gap: 10px; }
+    .header-title { font-size: 15px; font-weight: 600; }
+    .header-model {
+      font-size: 11px; color: var(--text2);
+      background: var(--surface); padding: 3px 8px; border-radius: 20px;
+      border: 1px solid var(--border);
+    }
+    .status-pill {
+      font-size: 11px; padding: 3px 9px; border-radius: 20px;
+      background: var(--surface); color: var(--text2);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; gap: 5px;
+      transition: all 0.2s;
+    }
+    .status-pill.streaming { border-color: var(--accent); color: var(--accent); }
+    .status-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+    /* ── Messages ───────────────────────────────────────────────────── */
+
+    .messages {
+      flex: 1; overflow-y: auto; padding: 24px 20px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+
+    /* Welcome screen */
+    .welcome {
+      margin: auto;
+      text-align: center;
+      padding: 40px 20px;
+      max-width: 420px;
+      animation: fadeIn 0.4s ease;
+    }
+    .welcome-icon {
+      width: 64px; height: 64px; border-radius: 18px; margin: 0 auto 20px;
+      background: linear-gradient(135deg, #7c3aed 0%, #3b82f6 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 30px; font-weight: 800; color: #fff;
+    }
+    .welcome h2 { font-size: 24px; font-weight: 700; margin-bottom: 10px; }
+    .welcome p  { color: var(--text2); font-size: 14px; line-height: 1.7; }
+    .welcome-chips {
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+      margin-top: 24px;
+    }
+    .chip {
+      padding: 7px 14px; border-radius: 20px; font-size: 12.5px;
+      border: 1px solid var(--border); color: var(--text2);
+      cursor: pointer; transition: all 0.15s; background: var(--surface);
+    }
+    .chip:hover { border-color: var(--accent); color: var(--text); background: var(--accent-dim); }
+
+    /* Message rows */
+    .msg-row {
+      display: flex; gap: 10px;
+      max-width: 820px; width: 100%;
+      animation: msgIn 0.18s ease;
+    }
+    .msg-row.user      { margin-left: auto; flex-direction: row-reverse; }
+    .msg-row.assistant { margin-right: auto; }
+
+    @keyframes msgIn { from { opacity: 0; transform: translateY(6px); } }
+    @keyframes fadeIn { from { opacity: 0; } }
+
+    .avatar {
+      width: 30px; height: 30px; border-radius: 8px;
+      flex-shrink: 0; margin-top: 4px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700;
+    }
+    .avatar.gemma {
+      background: linear-gradient(135deg, #7c3aed, #3b82f6);
+      color: #fff;
+    }
+    .avatar.user {
+      background: var(--user-bg);
+      color: #60a5fa;
+    }
+
+    .bubble {
+      padding: 10px 14px; border-radius: var(--radius);
+      font-size: 14.5px; line-height: 1.68;
+      max-width: calc(100% - 42px);
+      word-break: break-word;
+    }
+    .msg-row.user .bubble {
+      background: var(--user-bg);
+      color: var(--user-text);
+      border-radius: var(--radius) 4px var(--radius) var(--radius);
+    }
+    .msg-row.assistant .bubble {
+      background: var(--surface);
+      border-radius: 4px var(--radius) var(--radius) var(--radius);
+    }
+
+    /* Markdown inside bubbles */
+    .bubble p               { margin-bottom: 10px; }
+    .bubble p:last-child    { margin-bottom: 0; }
+    .bubble ul, .bubble ol  { padding-left: 22px; margin-bottom: 10px; }
+    .bubble li              { margin-bottom: 4px; }
+    .bubble h1 { font-size: 19px; font-weight: 700; margin: 14px 0 6px; }
+    .bubble h2 { font-size: 17px; font-weight: 700; margin: 12px 0 5px; }
+    .bubble h3 { font-size: 15px; font-weight: 600; margin: 10px 0 4px; }
+    .bubble strong  { font-weight: 600; }
+    .bubble em      { font-style: italic; }
+    .bubble a       { color: var(--accent); text-decoration: underline; }
+    .bubble hr      { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+    .bubble blockquote {
+      border-left: 3px solid var(--accent); padding-left: 12px;
+      color: var(--text2); margin: 8px 0;
+    }
+    .bubble code {
+      background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
+      font-family: var(--mono); font-size: 0.86em; color: #c9d1d9;
+    }
+    .bubble pre {
+      background: var(--code-bg); border-radius: 8px; padding: 14px 16px;
+      overflow-x: auto; margin: 10px 0;
+      border: 1px solid var(--code-border);
+      position: relative;
+    }
+    .bubble pre code {
+      background: none; padding: 0; font-size: 0.87em; line-height: 1.55;
+      color: #c9d1d9;
+    }
+    .bubble table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 13px; }
+    .bubble th, .bubble td {
+      border: 1px solid var(--border); padding: 7px 12px; text-align: left;
+    }
+    .bubble th { background: var(--surface2); font-weight: 600; }
+
+    /* ── Thinking block ─────────────────────────────────────────────── */
+    .think-block {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 12px;
+      background: var(--surface2);
+      overflow: hidden;
+    }
+    .think-block summary {
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 12px; color: var(--text2);
+      list-style: none;
+      display: flex; align-items: center; gap: 8px;
+      user-select: none;
+    }
+    .think-block summary::-webkit-details-marker { display: none; }
+    .think-block summary:hover { background: rgba(255,255,255,0.04); }
+    .think-chevron {
+      margin-left: auto; font-size: 10px; transition: transform 0.2s;
+    }
+    .think-block[open] .think-chevron { transform: rotate(90deg); }
+    .think-body {
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+      font-size: 12.5px; color: var(--text2);
+      line-height: 1.6; max-height: 400px; overflow-y: auto;
+    }
+    .think-body p:last-child { margin-bottom: 0; }
+    .think-pulse {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--accent); flex-shrink: 0;
+      animation: tpulse 1.2s ease-in-out infinite;
+    }
+    @keyframes tpulse {
+      0%, 100% { opacity: 0.3; transform: scale(1); }
+      50%       { opacity: 1;   transform: scale(1.3); }
+    }
+
+    /* Typing cursor */
+    .cursor {
+      display: inline-block; width: 2px; height: 15px;
+      background: var(--accent); margin-left: 2px; vertical-align: middle;
+      animation: blink 0.9s step-start infinite;
+    }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    /* Typing indicator (bouncing dots) */
+    .typing {
+      display: flex; gap: 4px; padding: 3px 2px; align-items: center;
+    }
+    .typing span {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--text3);
+      animation: bounce 1.2s ease-in-out infinite;
+    }
+    .typing span:nth-child(2) { animation-delay: 0.2s; }
+    .typing span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+      30%           { transform: translateY(-5px); opacity: 1; }
+    }
+
+    /* ── Input area ─────────────────────────────────────────────────── */
+
+    .input-area {
+      padding: 14px 20px 18px;
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .input-box {
+      display: flex; flex-direction: column;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 8px 8px 14px;
+      transition: border-color 0.15s;
+    }
+    .input-box:focus-within { border-color: var(--accent); }
+
+    .input-row { display: flex; align-items: flex-end; gap: 8px; }
+
+    /* Attachment strip */
+    .attachment-strip {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      padding: 0 0 8px 0;
+    }
+    .attach-chip {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 4px 8px; font-size: 12px; color: var(--text2);
+      max-width: 200px;
+    }
+    .attach-chip-name {
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px;
+    }
+    .attach-chip img {
+      width: 32px; height: 32px; object-fit: cover; border-radius: 4px; flex-shrink: 0;
+    }
+    .attach-chip-remove {
+      background: none; border: none; color: var(--text3); cursor: pointer;
+      padding: 0 2px; font-size: 14px; line-height: 1; flex-shrink: 0;
+      transition: color 0.15s;
+    }
+    .attach-chip-remove:hover { color: var(--danger); }
+
+    /* Attach button */
+    .attach-btn {
+      width: 32px; height: 32px; border-radius: 7px; border: 1px solid var(--border);
+      background: transparent; color: var(--text2); cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      margin-bottom: 2px;
+    }
+    .attach-btn:hover { background: var(--surface2); color: var(--text); border-color: #444; }
+    .attach-btn.has-files { border-color: var(--accent); color: var(--accent); }
+
+    #user-input {
+      flex: 1; background: transparent; border: none; outline: none;
+      color: var(--text); font-size: 14.5px; font-family: var(--font);
+      resize: none; max-height: 180px; min-height: 24px;
+      line-height: 1.55; padding: 2px 0; align-self: flex-end;
+    }
+    #user-input::placeholder { color: var(--text3); }
+
+    .send-btn {
+      width: 36px; height: 36px; border-radius: 8px; border: none;
+      background: var(--send-bg); color: #fff; cursor: pointer; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s, opacity 0.15s, transform 0.1s;
+    }
+    .send-btn:hover:not(:disabled) { background: var(--send-hover); transform: scale(1.05); }
+    .send-btn:active:not(:disabled){ transform: scale(0.97); }
+    .send-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+
+    .input-hint {
+      font-size: 11px; color: var(--text3);
+      text-align: center; margin-top: 8px; letter-spacing: 0.01em;
+    }
+
+    /* ── Scrollbar ──────────────────────────────────────────────────── */
+    ::-webkit-scrollbar         { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track   { background: transparent; }
+    ::-webkit-scrollbar-thumb   { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #444; }
+
+    /* ── Responsive ─────────────────────────────────────────────────── */
+    @media (max-width: 640px) { .sidebar { display: none; } }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Sidebar ───────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-top">
+      <div class="logo">
+        <div class="logo-icon">G</div>
+        <div class="logo-label">
+          <div class="logo-name">Gemma Chat</div>
+          <div class="logo-sub">Powered by Modal</div>
+        </div>
+      </div>
+      <button class="new-chat-btn" onclick="newChat()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        New Chat
+      </button>
+    </div>
+
+    <div class="sidebar-section" id="hist-list">
+      <!-- populated by JS -->
+    </div>
+
+    <div class="sidebar-footer">
+      <div class="model-badge">
+        <span class="dot-live"></span>
+        gemma-4-E4B Q4_K_M
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Main ──────────────────────────────────────────────────────── -->
+  <main class="main">
+
+    <header class="chat-header">
+      <div class="header-left">
+        <span class="header-title">Gemma 4 E4B</span>
+        <span class="header-model">Modal · T4 GPU</span>
+      </div>
+      <span class="status-pill" id="status-pill">
+        <span class="status-dot"></span>
+        <span id="status-text">Ready</span>
+      </span>
+    </header>
+
+    <div class="messages" id="messages">
+      <div class="welcome" id="welcome">
+        <div class="welcome-icon">G</div>
+        <h2>Hello, I'm Gemma</h2>
+        <p>
+          Google's open model — running on a <strong>T4 GPU</strong> via Modal,
+          served with llama.cpp. Fast, private, and free to customise.
+        </p>
+        <div class="welcome-chips">
+          <div class="chip" onclick="prefill('Explain quantum computing simply')">Explain quantum computing</div>
+          <div class="chip" onclick="prefill('Write a Python function to parse JSON')">Write Python code</div>
+          <div class="chip" onclick="prefill('What are the pros and cons of microservices?')">Microservices pros &amp; cons</div>
+          <div class="chip" onclick="prefill('Tell me a short story about an AI')">Tell me a story</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-box">
+        <div class="attachment-strip" id="attachment-strip" style="display:none"></div>
+        <div class="input-row">
+          <button class="attach-btn" id="attach-btn" onclick="document.getElementById('file-input').click()" title="Attach file">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66
+                       l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </button>
+          <textarea
+            id="user-input"
+            placeholder="Message Gemma…"
+            rows="1"
+            onkeydown="onKey(event)"
+            oninput="autoResize(this)"
+          ></textarea>
+          <button class="send-btn" id="send-btn" onclick="sendMessage()" title="Send (Enter)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010
+                1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0
+                0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <p class="input-hint">Enter to send · Shift+Enter for new line · Attach images &amp; documents</p>
+    </div>
+
+    <input type="file" id="file-input" multiple
+      accept="image/*,.pdf,.txt,.md,.py,.js,.ts,.jsx,.tsx,.json,.csv,.html,.css,.yaml,.yml,.xml,.sh,.c,.cpp,.h,.java,.go,.rs,.rb,.swift"
+      style="display:none" onchange="handleFileSelect(event)" />
+
+  </main>
+</div>
+
+<script>
+// ── marked.js config ────────────────────────────────────────────────────
+marked.use({ breaks: true, gfm: true });
+
+// ── State ───────────────────────────────────────────────────────────────
+let conversation   = [];
+let sessions       = JSON.parse(localStorage.getItem('gemma_sessions') || '[]');
+let currentSession = null;
+let isStreaming    = false;
+let attachments    = []; // [{type:'image'|'document', filename, data_url?, text?}]
+
+const messagesEl  = document.getElementById('messages');
+const inputEl     = document.getElementById('user-input');
+const sendBtn     = document.getElementById('send-btn');
+const statusPill  = document.getElementById('status-pill');
+const statusText  = document.getElementById('status-text');
+const attachStrip = document.getElementById('attachment-strip');
+const attachBtn   = document.getElementById('attach-btn');
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 180) + 'px';
+}
+
+function onKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!isStreaming) sendMessage();
+  }
+}
+
+function scrollBottom() {
+  messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: 'smooth' });
+}
+
+function setStatus(text, streaming = false) {
+  statusText.textContent = text;
+  statusPill.classList.toggle('streaming', streaming);
+}
+
+function removeWelcome() {
+  const w = document.getElementById('welcome');
+  if (w) w.remove();
+}
+
+function prefill(text) {
+  inputEl.value = text;
+  autoResize(inputEl);
+  inputEl.focus();
+}
+
+// ── File attachments ─────────────────────────────────────────────────────
+async function handleFileSelect(event) {
+  const files = Array.from(event.target.files);
+  event.target.value = ''; // reset so same file can be re-added
+  if (!files.length) return;
+
+  for (const file of files) {
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const resp = await fetch('/api/upload', { method: 'POST', body: formData });
+      if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
+      const data = await resp.json();
+      attachments.push(data);
+    } catch (err) {
+      console.error('Upload error:', err);
+    }
+  }
+  renderAttachments();
+}
+
+function removeAttachment(idx) {
+  attachments.splice(idx, 1);
+  renderAttachments();
+}
+
+function renderAttachments() {
+  attachBtn.classList.toggle('has-files', attachments.length > 0);
+  if (!attachments.length) {
+    attachStrip.style.display = 'none';
+    attachStrip.innerHTML = '';
+    return;
+  }
+  attachStrip.style.display = 'flex';
+  attachStrip.innerHTML = attachments.map((a, i) => {
+    if (a.type === 'image') {
+      return `<div class="attach-chip">
+        <img src="${a.data_url}" alt="${a.filename}" />
+        <span class="attach-chip-name">${a.filename}</span>
+        <button class="attach-chip-remove" onclick="removeAttachment(${i})" title="Remove">✕</button>
+      </div>`;
+    }
+    const icon = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+    </svg>`;
+    return `<div class="attach-chip">
+      ${icon}
+      <span class="attach-chip-name">${a.filename}</span>
+      <button class="attach-chip-remove" onclick="removeAttachment(${i})" title="Remove">✕</button>
+    </div>`;
+  }).join('');
+}
+
+// ── Thinking parser & renderer ──────────────────────────────────────────
+function parseThinking(text) {
+  // Complete: <think>...</think>response
+  const full = text.match(/^<think>([\s\S]*?)<\/think>\s*([\s\S]*)$/);
+  if (full) return { thinking: full[1].trim(), response: full[2], done: true };
+  // Still inside <think>
+  const open = text.match(/^<think>([\s\S]*)$/);
+  if (open) return { thinking: open[1], response: '', done: false };
+  // No thinking
+  return { thinking: null, response: text, done: true };
+}
+
+function renderBubble(bubble, text, streamDone) {
+  const p = parseThinking(text);
+  let html = '';
+
+  if (p.thinking !== null) {
+    const thinkDone = p.done;
+    const pulse = thinkDone ? '' : '<span class="think-pulse"></span>';
+    const label = thinkDone ? 'Reasoning' : 'Thinking…';
+    // Keep open while streaming, collapse when done
+    const openAttr = thinkDone ? '' : ' open';
+    html += `<details class="think-block"${openAttr}>
+      <summary>${pulse}<span>${label}</span><span class="think-chevron">▶</span></summary>
+      <div class="think-body">${marked.parse(p.thinking || '')}</div>
+    </details>`;
+  }
+
+  if (p.response) html += marked.parse(p.response);
+  if (!streamDone) html += '<span class="cursor"></span>';
+
+  bubble.innerHTML = html;
+}
+
+// ── Render a message row ─────────────────────────────────────────────────
+function addMessageRow(role, content, streaming = false) {
+  removeWelcome();
+
+  const row = document.createElement('div');
+  row.className = `msg-row ${role}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = `avatar ${role === 'user' ? 'user' : 'gemma'}`;
+  avatar.textContent = role === 'user' ? 'U' : 'G';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+
+  if (role === 'user') {
+    bubble.textContent = content;
+  } else if (streaming) {
+    bubble.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
+  } else {
+    bubble.innerHTML = marked.parse(content);
+  }
+
+  row.appendChild(avatar);
+  row.appendChild(bubble);
+  messagesEl.appendChild(row);
+  scrollBottom();
+  return bubble;
+}
+
+// ── Send ────────────────────────────────────────────────────────────────
+async function sendMessage() {
+  const raw = inputEl.value.trim();
+  if (!raw || isStreaming) return;
+
+  inputEl.value = '';
+  inputEl.style.height = 'auto';
+  autoResize(inputEl);
+
+  conversation.push({ role: 'user', content: raw });
+  addMessageRow('user', raw);
+
+  // Snapshot and clear attachments before async work
+  const sentAttachments = [...attachments];
+  attachments = [];
+  renderAttachments();
+
+  isStreaming = true;
+  sendBtn.disabled = true;
+  setStatus('Generating…', true);
+
+  const bubble  = addMessageRow('assistant', '', true);
+  let accumulated = '';
+  let started     = false;
+  let hadError    = false;
+
+  try {
+    const msgs = buildMessages(raw, sentAttachments);
+
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: msgs, temperature: 0.7, max_tokens: 2048 }),
+    });
+
+    if (!resp.ok) {
+      throw new Error(`Server returned HTTP ${resp.status}`);
+    }
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop(); // keep incomplete line
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw2 = line.slice(6).trim();
+        if (!raw2) continue;
+
+        let evt;
+        try { evt = JSON.parse(raw2); } catch { continue; }
+
+        if (evt.error) {
+          bubble.innerHTML =
+            `<span style="color:var(--danger)">⚠ ${evt.error}</span>`;
+          hadError = true;
+          started = true;
+          break;
+        }
+
+        if (evt.content) {
+          if (!started) { bubble.innerHTML = ''; started = true; }
+          accumulated += evt.content;
+          renderBubble(bubble, accumulated, false);
+          scrollBottom();
+        }
+
+        if (evt.done) {
+          renderBubble(bubble, accumulated, true);
+          break;
+        }
+      }
+    }
+
+    // Ensure cursor removed
+    if (!hadError) renderBubble(bubble, accumulated, true);
+
+    if (accumulated) {
+      conversation.push({ role: 'assistant', content: accumulated });
+      saveSession(raw);
+    }
+
+  } catch (err) {
+    bubble.innerHTML =
+      `<span style="color:var(--danger)">⚠ ${err.message}</span>`;
+    console.error(err);
+  } finally {
+    isStreaming = false;
+    sendBtn.disabled = false;
+    setStatus('Ready', false);
+    inputEl.focus();
+    scrollBottom();
+  }
+}
+
+// Build the message array Gemma expects.
+// Gemma doesn't have a native system role, so we prepend instructions
+// to the very first user turn.
+function buildMessages(latestUserText, fileAttachments) {
+  const SYSTEM =
+    'You are Gemma, a helpful, harmless, and honest AI assistant created by Google. ' +
+    'Be concise, clear, and thorough.';
+
+  const images = (fileAttachments || []).filter(a => a.type === 'image');
+  const docs   = (fileAttachments || []).filter(a => a.type === 'document');
+
+  // Prepend extracted document text to the user message
+  let userText = latestUserText;
+  if (docs.length) {
+    const docContext = docs.map(d =>
+      `--- File: ${d.filename} ---\n${d.text}`
+    ).join('\n\n');
+    userText = `${docContext}\n\n${latestUserText}`;
+  }
+
+  // Build content: string for text-only, array for multimodal
+  function makeUserContent(text, isFirst) {
+    const fullText = isFirst ? `${SYSTEM}\n\n${text}` : text;
+    if (!images.length) return fullText;
+    // OpenAI-compatible multimodal format
+    const parts = [{ type: 'text', text: fullText }];
+    for (const img of images) {
+      parts.push({ type: 'image_url', image_url: { url: img.data_url } });
+    }
+    return parts;
+  }
+
+  if (conversation.length <= 1) {
+    return [{ role: 'user', content: makeUserContent(userText, true) }];
+  }
+
+  // Subsequent messages: full history; attachments only on latest turn
+  const result = [];
+  for (let i = 0; i < conversation.length; i++) {
+    const m = conversation[i];
+    if (i === 0) {
+      result.push({ role: 'user', content: `${SYSTEM}\n\n${m.content}` });
+    } else if (i === conversation.length - 1 && m.role === 'user') {
+      result.push({ role: 'user', content: makeUserContent(userText, false) });
+    } else {
+      result.push({ role: m.role, content: m.content });
+    }
+  }
+  return result;
+}
+
+// ── Sessions ─────────────────────────────────────────────────────────────
+function saveSession(firstMsg) {
+  if (!currentSession) {
+    currentSession = {
+      id: Date.now(),
+      title: firstMsg.slice(0, 45),
+      ts: Date.now(),
+      messages: [],
+    };
+    sessions.unshift(currentSession);
+  }
+  currentSession.messages = [...conversation];
+  currentSession.ts = Date.now();
+
+  // Keep only latest 30 sessions
+  if (sessions.length > 30) sessions.length = 30;
+
+  try {
+    localStorage.setItem('gemma_sessions', JSON.stringify(sessions));
+  } catch (_) {}
+
+  renderHistory();
+}
+
+function renderHistory() {
+  const el = document.getElementById('hist-list');
+  if (!sessions.length) { el.innerHTML = ''; return; }
+
+  const now  = Date.now();
+  const today    = sessions.filter(s => now - s.ts < 86_400_000);
+  const thisWeek = sessions.filter(s => now - s.ts >= 86_400_000 && now - s.ts < 604_800_000);
+
+  let html = '';
+
+  if (today.length) {
+    html += '<div class="section-label">Today</div>';
+    for (const s of today) html += histItem(s);
+  }
+  if (thisWeek.length) {
+    html += '<div class="section-label">This week</div>';
+    for (const s of thisWeek) html += histItem(s);
+  }
+
+  el.innerHTML = html;
+}
+
+function histItem(s) {
+  const active = s === currentSession ? ' active' : '';
+  const icon = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" stroke-width="2" stroke-linecap="round">
+    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+  </svg>`;
+  return `<div class="hist-item${active}" onclick="loadSession(${s.id})">${icon}${s.title}…</div>`;
+}
+
+function loadSession(id) {
+  const s = sessions.find(x => x.id === id);
+  if (!s) return;
+  currentSession = s;
+  conversation   = [...s.messages];
+
+  messagesEl.innerHTML = '';
+  for (const m of conversation) addMessageRow(m.role, m.content);
+  renderHistory();
+  inputEl.focus();
+}
+
+function newChat() {
+  currentSession = null;
+  conversation   = [];
+  messagesEl.innerHTML = `
+    <div class="welcome" id="welcome">
+      <div class="welcome-icon">G</div>
+      <h2>Hello, I'm Gemma</h2>
+      <p>Google's open model running on a <strong>T4 GPU</strong> via Modal.</p>
+      <div class="welcome-chips">
+        <div class="chip" onclick="prefill('Explain quantum computing simply')">Explain quantum computing</div>
+        <div class="chip" onclick="prefill('Write a Python function to parse JSON')">Write Python code</div>
+        <div class="chip" onclick="prefill('What are the pros and cons of microservices?')">Microservices pros &amp; cons</div>
+        <div class="chip" onclick="prefill('Tell me a short story about an AI')">Tell me a story</div>
+      </div>
+    </div>`;
+  renderHistory();
+  inputEl.focus();
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────
+renderHistory();
+inputEl.focus();
+</script>
+</body>
+</html>

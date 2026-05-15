@@ -1,0 +1,20 @@
+# Environment — contains private Modal URLs
+.env
+
+# Claude Code settings
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Modal
+.modal/
+
+# OS
+.DS_Store
+Thumbs.db

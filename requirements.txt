@@ -1,0 +1,10 @@
+# Local server dependencies
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+httpx>=0.27.0
+python-dotenv>=1.0.0
+pypdf>=4.0.0
+python-multipart>=0.0.9
+
+# Modal CLI (needed for deployment only)
+modal>=0.62.0
