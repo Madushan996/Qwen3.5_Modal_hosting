@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Gemma Chat</title>
   <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -523,6 +525,41 @@
 // ── marked.js config ────────────────────────────────────────────────────
 marked.use({ breaks: true, gfm: true });
 
+// ── Markdown + Math renderer ─────────────────────────────────────────────
+// Extracts $$...$$ and $...$ blocks BEFORE marked runs so markdown parsing
+// doesn't mangle underscores and backslashes inside LaTeX expressions.
+function renderMarkdownWithMath(text) {
+  if (!text) return '';
+  const store = [];
+
+  // 1. Stash display math  $$...$$
+  let out = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
+    store.push({ math: math.trim(), display: true });
+    return `%%MATH_${store.length - 1}%%`;
+  });
+
+  // 2. Stash inline math  $...$  (single line only, avoids false positives)
+  out = out.replace(/\$([^$\n]+?)\$/g, (_, math) => {
+    store.push({ math: math.trim(), display: false });
+    return `%%MATH_${store.length - 1}%%`;
+  });
+
+  // 3. Render markdown
+  out = renderMarkdownWithMath(out);
+
+  // 4. Restore math placeholders with KaTeX
+  out = out.replace(/%%MATH_(\d+)%%/g, (_, i) => {
+    const { math, display } = store[+i];
+    try {
+      return katex.renderToString(math, { displayMode: display, throwOnError: false });
+    } catch {
+      return display ? `$$${math}$$` : `$${math}$`;
+    }
+  });
+
+  return out;
+}
+
 // ── State ───────────────────────────────────────────────────────────────
 let conversation   = [];
 let sessions       = JSON.parse(localStorage.getItem('gemma_sessions') || '[]');
@@ -650,11 +687,11 @@ function renderBubble(bubble, text, streamDone) {
     const openAttr = thinkDone ? '' : ' open';
     html += `<details class="think-block"${openAttr}>
       <summary>${pulse}<span>${label}</span><span class="think-chevron">▶</span></summary>
-      <div class="think-body">${marked.parse(p.thinking || '')}</div>
+      <div class="think-body">${renderMarkdownWithMath(p.thinking || '')}</div>
     </details>`;
   }
 
-  if (p.response) html += marked.parse(p.response);
+  if (p.response) html += renderMarkdownWithMath(p.response);
   if (!streamDone) html += '<span class="cursor"></span>';
 
   bubble.innerHTML = html;
@@ -679,7 +716,7 @@ function addMessageRow(role, content, streaming = false) {
   } else if (streaming) {
     bubble.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
   } else {
-    bubble.innerHTML = marked.parse(content);
+    bubble.innerHTML = renderMarkdownWithMath(content);
   }
 
   row.appendChild(avatar);
