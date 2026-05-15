@@ -545,7 +545,7 @@ function renderMarkdownWithMath(text) {
   });
 
   // 3. Render markdown
-  out = renderMarkdownWithMath(out);
+  out = marked.parse(out);
 
   // 4. Restore math placeholders with KaTeX
   out = out.replace(/%%MATH_(\d+)%%/g, (_, i) => {
