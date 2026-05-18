@@ -13,6 +13,7 @@ A full-stack chat application that runs Google's **Gemma 3 4B Instruct** multimo
 
 - **Native vision (image analysis)** — send images directly to the model; full multimodal support via HuggingFace `AutoProcessor`
 - **Streaming responses** — tokens appear in real time via Server-Sent Events (SSE)
+- **OpenAI-compatible API** — drop-in replacement for the OpenAI API on `http://localhost:8000/v1`
 - **Custom system prompt** — editable in the sidebar, persisted in `localStorage`
 - **File attachments without text** — attach images or documents and send without typing anything
 - **Image preview in chat** — sent images appear inline in your message bubble
@@ -245,6 +246,104 @@ modal deploy modal_app.py
 ```
 
 After the first build the Modal image is fully cached — code-only changes deploy in under 10 seconds.
+
+---
+
+## OpenAI-Compatible API
+
+Once `server.py` is running, it exposes a fully OpenAI-compatible API at `http://localhost:8000/v1`. Any tool or library that supports a custom OpenAI base URL can use Gemma as a drop-in replacement — no code changes needed beyond pointing it at your local server.
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/models` | List available models |
+| `POST` | `/v1/chat/completions` | Chat completions (streaming and non-streaming) |
+
+### curl
+
+```bash
+# Non-streaming
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemma-3-4b-it",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "What is the capital of France?"}
+    ]
+  }'
+
+# Streaming
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemma-3-4b-it",
+    "messages": [{"role": "user", "content": "Tell me a joke."}],
+    "stream": true
+  }'
+```
+
+### Python — `openai` library
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="not-needed",  # required by the library but ignored
+)
+
+# Non-streaming
+response = client.chat.completions.create(
+    model="gemma-3-4b-it",
+    messages=[
+        {"role": "system", "content": "You are a concise assistant."},
+        {"role": "user", "content": "Explain neural networks in one paragraph."},
+    ],
+)
+print(response.choices[0].message.content)
+
+# Streaming
+stream = client.chat.completions.create(
+    model="gemma-3-4b-it",
+    messages=[{"role": "user", "content": "Write a short poem about the sea."}],
+    stream=True,
+)
+for chunk in stream:
+    print(chunk.choices[0].delta.content or "", end="", flush=True)
+```
+
+### LangChain
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, SystemMessage
+
+llm = ChatOpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="not-needed",
+    model="gemma-3-4b-it",
+)
+
+messages = [
+    SystemMessage(content="You are a helpful coding assistant."),
+    HumanMessage(content="Write a Python function to reverse a string."),
+]
+print(llm.invoke(messages).content)
+```
+
+### Request parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `model` | string | — | Model name (any string is accepted — only `gemma-3-4b-it` is running) |
+| `messages` | array | — | Array of `{role, content}` objects. Roles: `system`, `user`, `assistant` |
+| `stream` | boolean | `false` | Return SSE chunks (`true`) or a single JSON response (`false`) |
+| `temperature` | float | `0.7` | Sampling temperature (0 = deterministic, 1 = creative) |
+| `max_tokens` | integer | `2048` | Maximum tokens to generate |
+
+> **Note:** `usage` (token counts) in the response is always `-1` — the Modal backend does not track token usage.
 
 ---
 
