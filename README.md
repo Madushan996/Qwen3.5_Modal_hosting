@@ -249,6 +249,124 @@ After the first build the Modal image is fully cached — code-only changes depl
 
 ---
 
+## Batch Image Annotation
+
+`batch_annotate.py` lets you annotate thousands of images automatically using the Gemma API. It reads a folder of images, sends them concurrently to `/v1/chat/completions`, and saves one JSON record per image to a `.jsonl` file.
+
+### Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### Basic usage
+
+Make sure `server.py` is running first, then:
+
+```bash
+python batch_annotate.py --input ./images
+```
+
+This processes every image in `./images` (recursively) and saves results to `annotations.jsonl`.
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--input` | *(required)* | Folder of images to annotate |
+| `--output` | `annotations.jsonl` | Output file (JSONL — one JSON record per line) |
+| `--prompt` | Built-in schema | System prompt that defines what the model returns |
+| `--concurrency` | `5` | Number of parallel requests (Modal auto-scales containers) |
+| `--retries` | `3` | Retry attempts per image on failure |
+| `--api-url` | `http://localhost:8000/v1/chat/completions` | API endpoint |
+| `--model` | `gemma-3-4b-it` | Model name |
+
+### Default output format
+
+Each line in the `.jsonl` file is a JSON object:
+
+```json
+{
+  "filename": "cat.jpg",
+  "path": "/path/to/images/cat.jpg",
+  "status": "ok",
+  "annotation": {
+    "label": "cat",
+    "description": "A tabby cat sitting on a wooden floor.",
+    "objects": ["cat", "wooden floor"],
+    "colors": ["orange", "brown", "white"],
+    "confidence": "high"
+  }
+}
+```
+
+Failed images have `"status": "error"` and an `"error"` field instead of `"annotation"`.
+
+### Custom annotation schema
+
+Pass a `--prompt` to define exactly what the model should return:
+
+```bash
+# Defect detection
+python batch_annotate.py --input ./products \
+  --prompt "Return JSON with: defect_found (true/false), defect_type (list), severity (low/medium/high/none), notes (string)."
+
+# Multi-label classification
+python batch_annotate.py --input ./photos \
+  --prompt "Return JSON with: scene (indoor/outdoor), people_present (true/false), objects (list of up to 5 main objects)."
+
+# Medical / scientific (adapt as needed)
+python batch_annotate.py --input ./scans \
+  --prompt "Return JSON with: tissue_type, anomalies_detected (true/false), region_of_interest (description)."
+```
+
+### Resume support
+
+If the run is interrupted, just re-run the same command. Images already recorded in the output file are automatically skipped.
+
+```bash
+# Run 1 — interrupted at image 2000
+python batch_annotate.py --input ./images --output annotations.jsonl
+
+# Run 2 — resumes from image 2001
+python batch_annotate.py --input ./images --output annotations.jsonl
+```
+
+### Load results in Python
+
+```python
+import json
+
+records = []
+with open("annotations.jsonl") as f:
+    for line in f:
+        records.append(json.loads(line))
+
+# Filter successful ones
+ok = [r for r in records if r["status"] == "ok"]
+print(f"{len(ok)} / {len(records)} succeeded")
+
+# Convert to a list of flat dicts for pandas
+import pandas as pd
+rows = [{"filename": r["filename"], **r["annotation"]} for r in ok]
+df = pd.DataFrame(rows)
+print(df.head())
+```
+
+### Expected throughput for 5 000 images
+
+With `--concurrency 5` (5 parallel GPU containers on Modal), assuming ~5 seconds per image:
+
+| Metric | Value |
+|--------|-------|
+| Wall-clock time | ~80–90 minutes |
+| GPU compute time | ~25 000 GPU-seconds |
+| Estimated cost | ~$8 (A10G at ~$0.00032/s) |
+
+Increase `--concurrency` to go faster (Modal will spin up more containers automatically). Each concurrent request = one additional GPU container.
+
+---
+
 ## OpenAI-Compatible API
 
 Once `server.py` is running, it exposes a fully OpenAI-compatible API at `http://localhost:8000/v1`. Any tool or library that supports a custom OpenAI base URL can use Gemma as a drop-in replacement — no code changes needed beyond pointing it at your local server.
