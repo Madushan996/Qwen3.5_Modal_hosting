@@ -11,23 +11,23 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:           #1a1a1a;
-      --sidebar-bg:   #111111;
-      --surface:      #252525;
-      --surface2:     #2e2e2e;
-      --border:       #303030;
-      --text:         #e8e8e8;
-      --text2:        #888888;
-      --text3:        #555555;
-      --accent:       #9b6dff;
-      --accent-dim:   #7c3aed33;
-      --user-bg:      #1a3050;
-      --user-text:    #c9e3ff;
-      --code-bg:      #0d1117;
-      --code-border:  #21262d;
+      --bg:           #f7f5f0;
+      --sidebar-bg:   #edeae3;
+      --surface:      #ffffff;
+      --surface2:     #f0ede6;
+      --border:       #dedad2;
+      --text:         #1c1917;
+      --text2:        #6b6760;
+      --text3:        #a8a49e;
+      --accent:       #7c3aed;
+      --accent-dim:   #7c3aed18;
+      --user-bg:      #ede9fb;
+      --user-text:    #3b1f8c;
+      --code-bg:      #f3f0e8;
+      --code-border:  #e2dfd7;
       --send-bg:      #7c3aed;
       --send-hover:   #6d28d9;
-      --danger:       #f87171;
+      --danger:       #dc2626;
       --radius:       12px;
       --font:         -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
       --mono:         'Fira Code', 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
@@ -40,7 +40,6 @@
       color: var(--text);
       font-size: 15px;
       line-height: 1.6;
-      -webkit-font-smoothing: antialiased;
     }
 
     /* ── Layout ─────────────────────────────────────────────────────── */
@@ -90,7 +89,7 @@
       display: flex; align-items: center; gap: 8px;
       transition: background 0.15s, border-color 0.15s;
     }
-    .new-chat-btn:hover { background: var(--surface); border-color: #444; }
+    .new-chat-btn:hover { background: var(--surface); border-color: #bbb; }
 
     .sidebar-section { padding: 8px; flex: 1; overflow-y: auto; }
     .section-label {
@@ -112,6 +111,57 @@
     .hist-item svg { flex-shrink: 0; opacity: 0.5; }
     .hist-item:hover  { background: var(--surface); color: var(--text); }
     .hist-item.active { background: var(--surface2); color: var(--text); }
+
+    /* ── System prompt ──────────────────────────────────────────── */
+
+    .sys-section {
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      margin: 4px 0;
+    }
+    .sys-toggle {
+      width: 100%; background: none; border: none; color: var(--text2);
+      font-size: 12px; font-family: var(--font);
+      padding: 9px 16px; cursor: pointer;
+      display: flex; align-items: center; gap: 7px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .sys-toggle:hover { background: var(--surface); color: var(--text); }
+    .sys-toggle.active { color: var(--accent); }
+    .sys-chevron { margin-left: auto; font-size: 10px; transition: transform 0.2s; }
+    .sys-chevron.open { transform: rotate(90deg); }
+    .sys-body {
+      padding: 0 12px 12px;
+      display: none;
+    }
+    .sys-body.open { display: block; }
+    #sys-input {
+      width: 100%; background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; color: var(--text); font-size: 12.5px;
+      font-family: var(--font); padding: 8px 10px; resize: vertical;
+      min-height: 80px; max-height: 220px; line-height: 1.55;
+      transition: border-color 0.15s;
+    }
+    #sys-input:focus { outline: none; border-color: var(--accent); }
+    #sys-input::placeholder { color: var(--text3); }
+    .sys-hint {
+      font-size: 10.5px; color: var(--text3); margin-top: 5px;
+    }
+    .sys-saved {
+      font-size: 10.5px; color: #22c55e; margin-top: 5px;
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .sys-saved.show { opacity: 1; }
+
+    /* ── Vision badge ───────────────────────────────────────────── */
+    .vision-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--text2);
+      margin-top: 6px;
+    }
+    .vision-badge .dot { width: 6px; height: 6px; border-radius: 50%; }
+    .vision-badge.on  .dot { background: #22c55e; box-shadow: 0 0 4px #22c55e88; }
+    .vision-badge.off .dot { background: var(--text3); }
 
     .sidebar-footer {
       padding: 12px 16px;
@@ -213,7 +263,7 @@
     }
     .avatar.user {
       background: var(--user-bg);
-      color: #60a5fa;
+      color: var(--user-text);
     }
 
     .bubble {
@@ -229,7 +279,9 @@
     }
     .msg-row.assistant .bubble {
       background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 4px var(--radius) var(--radius) var(--radius);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
 
     /* Markdown inside bubbles */
@@ -250,7 +302,7 @@
     }
     .bubble code {
       background: var(--code-bg); padding: 1px 5px; border-radius: 4px;
-      font-family: var(--mono); font-size: 0.86em; color: #c9d1d9;
+      font-family: var(--mono); font-size: 0.86em; color: #374151;
     }
     .bubble pre {
       background: var(--code-bg); border-radius: 8px; padding: 14px 16px;
@@ -260,7 +312,7 @@
     }
     .bubble pre code {
       background: none; padding: 0; font-size: 0.87em; line-height: 1.55;
-      color: #c9d1d9;
+      color: #374151;
     }
     .bubble table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 13px; }
     .bubble th, .bubble td {
@@ -413,7 +465,15 @@
     ::-webkit-scrollbar         { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track   { background: transparent; }
     ::-webkit-scrollbar-thumb   { background: var(--border); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: #444; }
+    ::-webkit-scrollbar-thumb:hover { background: #b0a898; }
+
+    /* ── Images in user bubble ──────────────────────────────────────── */
+    .msg-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .msg-image {
+      max-width: 220px; max-height: 180px;
+      border-radius: 8px; object-fit: cover;
+      border: 1px solid rgba(0,0,0,0.08);
+    }
 
     /* ── Responsive ─────────────────────────────────────────────────── */
     @media (max-width: 640px) { .sidebar { display: none; } }
@@ -441,6 +501,24 @@
       </button>
     </div>
 
+    <!-- System prompt -->
+    <div class="sys-section">
+      <button class="sys-toggle" id="sys-toggle" onclick="toggleSysPrompt()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/>
+        </svg>
+        System Prompt
+        <span class="sys-chevron" id="sys-chevron">▶</span>
+      </button>
+      <div class="sys-body" id="sys-body">
+        <textarea id="sys-input" placeholder="e.g. You are a concise coding assistant. Reply only in Python." oninput="onSysInput()"></textarea>
+        <div class="sys-hint">Applied to new conversations. Leave blank for default.</div>
+        <div class="sys-saved" id="sys-saved">Saved</div>
+      </div>
+    </div>
+
     <div class="sidebar-section" id="hist-list">
       <!-- populated by JS -->
     </div>
@@ -449,6 +527,10 @@
       <div class="model-badge">
         <span class="dot-live"></span>
         gemma-4-E4B Q4_K_M
+      </div>
+      <div class="vision-badge off" id="vision-badge">
+        <span class="dot"></span>
+        <span id="vision-label">Vision unknown</span>
       </div>
     </div>
   </aside>
@@ -560,11 +642,41 @@ function renderMarkdownWithMath(text) {
   return out;
 }
 
+// ── System prompt ────────────────────────────────────────────────────────
+const SYS_DEFAULT = 'You are Gemma, a helpful, harmless, and honest AI assistant created by Google. Be concise, clear, and thorough.';
+const SYS_KEY     = 'gemma_sys_prompt';
+
+function getSysPrompt() {
+  const v = localStorage.getItem(SYS_KEY);
+  return (v !== null) ? v : SYS_DEFAULT;
+}
+
+let sysSaveTimer = null;
+function onSysInput() {
+  clearTimeout(sysSaveTimer);
+  sysSaveTimer = setTimeout(() => {
+    localStorage.setItem(SYS_KEY, document.getElementById('sys-input').value.trim());
+    const el = document.getElementById('sys-saved');
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 1500);
+  }, 600);
+}
+
+function toggleSysPrompt() {
+  const body    = document.getElementById('sys-body');
+  const chevron = document.getElementById('sys-chevron');
+  const toggle  = document.getElementById('sys-toggle');
+  const open    = body.classList.toggle('open');
+  chevron.classList.toggle('open', open);
+  toggle.classList.toggle('active', open);
+}
+
 // ── State ───────────────────────────────────────────────────────────────
 let conversation   = [];
 let sessions       = JSON.parse(localStorage.getItem('gemma_sessions') || '[]');
 let currentSession = null;
 let isStreaming    = false;
+let visionEnabled  = false;
 let attachments    = []; // [{type:'image'|'document', filename, data_url?, text?}]
 
 const messagesEl  = document.getElementById('messages');
@@ -698,7 +810,7 @@ function renderBubble(bubble, text, streamDone) {
 }
 
 // ── Render a message row ─────────────────────────────────────────────────
-function addMessageRow(role, content, streaming = false) {
+function addMessageRow(role, content, streaming = false, imgAttachments = []) {
   removeWelcome();
 
   const row = document.createElement('div');
@@ -712,7 +824,20 @@ function addMessageRow(role, content, streaming = false) {
   bubble.className = 'bubble';
 
   if (role === 'user') {
-    bubble.textContent = content;
+    const images = imgAttachments.filter(a => a.type === 'image');
+    let html = '';
+    if (images.length) {
+      html += `<div class="msg-images">${images.map(a =>
+        `<img class="msg-image" src="${a.data_url}" alt="${a.filename}" />`
+      ).join('')}</div>`;
+    }
+    // safe text: create a throwaway node to escape HTML
+    if (content) {
+      const esc = document.createElement('span');
+      esc.textContent = content;
+      html += esc.innerHTML;
+    }
+    bubble.innerHTML = html;
   } else if (streaming) {
     bubble.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
   } else {
@@ -729,17 +854,17 @@ function addMessageRow(role, content, streaming = false) {
 // ── Send ────────────────────────────────────────────────────────────────
 async function sendMessage() {
   const raw = inputEl.value.trim();
-  if (!raw || isStreaming) return;
+  if ((!raw && !attachments.length) || isStreaming) return;
 
   inputEl.value = '';
   inputEl.style.height = 'auto';
   autoResize(inputEl);
 
   conversation.push({ role: 'user', content: raw });
-  addMessageRow('user', raw);
 
   // Snapshot and clear attachments before async work
   const sentAttachments = [...attachments];
+  addMessageRow('user', raw, false, sentAttachments);
   attachments = [];
   renderAttachments();
 
@@ -828,16 +953,13 @@ async function sendMessage() {
   }
 }
 
-// Build the message array Gemma expects.
-// Gemma doesn't have a native system role, so we prepend instructions
-// to the very first user turn.
+// Build the message array sent to the model.
+// A system message is prepended when a system prompt is configured.
+// Images are attached to the latest user turn in OpenAI multimodal format.
 function buildMessages(latestUserText, fileAttachments) {
-  const SYSTEM =
-    'You are Gemma, a helpful, harmless, and honest AI assistant created by Google. ' +
-    'Be concise, clear, and thorough.';
-
-  const images = (fileAttachments || []).filter(a => a.type === 'image');
-  const docs   = (fileAttachments || []).filter(a => a.type === 'document');
+  const sysText = getSysPrompt();
+  const images  = (fileAttachments || []).filter(a => a.type === 'image');
+  const docs    = (fileAttachments || []).filter(a => a.type === 'document');
 
   // Prepend extracted document text to the user message
   let userText = latestUserText;
@@ -849,32 +971,27 @@ function buildMessages(latestUserText, fileAttachments) {
   }
 
   // Build content: string for text-only, array for multimodal
-  function makeUserContent(text, isFirst) {
-    const fullText = isFirst ? `${SYSTEM}\n\n${text}` : text;
-    if (!images.length) return fullText;
-    // OpenAI-compatible multimodal format
-    const parts = [{ type: 'text', text: fullText }];
+  function makeUserContent(text) {
+    if (!images.length) return text;
+    const parts = [];
+    if (text) parts.push({ type: 'text', text });
     for (const img of images) {
       parts.push({ type: 'image_url', image_url: { url: img.data_url } });
     }
     return parts;
   }
 
-  if (conversation.length <= 1) {
-    return [{ role: 'user', content: makeUserContent(userText, true) }];
-  }
-
-  // Subsequent messages: full history; attachments only on latest turn
   const result = [];
+  if (sysText) result.push({ role: 'system', content: sysText });
+
+  // Full history, images only on the latest user turn
   for (let i = 0; i < conversation.length; i++) {
     const m = conversation[i];
-    if (i === 0) {
-      result.push({ role: 'user', content: `${SYSTEM}\n\n${m.content}` });
-    } else if (i === conversation.length - 1 && m.role === 'user') {
-      result.push({ role: 'user', content: makeUserContent(userText, false) });
-    } else {
-      result.push({ role: m.role, content: m.content });
-    }
+    const isLatest = i === conversation.length - 1 && m.role === 'user';
+    result.push({
+      role: m.role,
+      content: isLatest ? makeUserContent(userText) : m.content,
+    });
   }
   return result;
 }
@@ -966,6 +1083,34 @@ function newChat() {
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────
+
+// Populate system prompt textarea from storage
+document.getElementById('sys-input').value = getSysPrompt();
+
+// Check backend capabilities and update vision badge
+(async () => {
+  try {
+    const r    = await fetch('/api/status');
+    const data = await r.json();
+    const badge = document.getElementById('vision-badge');
+    const label = document.getElementById('vision-label');
+    if (data.vision === true) {
+      visionEnabled = true;
+      badge.className = 'vision-badge on';
+      label.textContent = 'Vision enabled';
+    } else if (data.status === 'ok' || data.loaded) {
+      visionEnabled = false;
+      badge.className = 'vision-badge off';
+      label.textContent = 'Vision unavailable';
+    } else {
+      badge.className = 'vision-badge off';
+      label.textContent = 'Backend offline';
+    }
+  } catch {
+    document.getElementById('vision-label').textContent = 'Backend offline';
+  }
+})();
+
 renderHistory();
 inputEl.focus();
 </script>

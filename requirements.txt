@@ -8,3 +8,8 @@ python-multipart>=0.0.9
 
 # Modal CLI (needed for deployment only)
 modal>=0.62.0
+
+# --- Modal container dependencies (installed inside the container, not locally) ---
+# torch, torchvision, transformers>=4.48.0, accelerate>=0.30.0,
+# bitsandbytes>=0.43.0, pillow, sentencepiece, protobuf,
+# huggingface_hub[hf_transfer]

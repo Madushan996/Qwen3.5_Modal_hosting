@@ -86,7 +86,7 @@ async def chat_proxy(request: Request) -> StreamingResponse:
     timeout = httpx.Timeout(connect=30.0, read=None, write=30.0, pool=30.0)
 
     async def proxy_stream():
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             async with client.stream(
                 "POST", MODAL_CHAT_URL, json=body
             ) as resp:
@@ -110,7 +110,7 @@ async def status() -> JSONResponse:
 
     if MODAL_HEALTH_URL:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
                 r = await client.get(MODAL_HEALTH_URL)
                 return JSONResponse(r.json())
         except Exception as exc:

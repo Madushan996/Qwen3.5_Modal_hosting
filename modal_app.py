@@ -1,169 +1,182 @@
 """
-Gemma 4 E4B Chat — Modal Backend
-Hosts gemma-4-E4B-it-Q4_K_M.gguf on a T4 GPU via llama-cpp-python.
+Gemma 4 E4B Chat — Modal Backend (HuggingFace transformers)
+Natively multimodal: text + image inputs via AutoProcessor.
 Deploy:  modal deploy modal_app.py
+
+Notes:
+  • Gemma models on HuggingFace require accepting the license on the model page.
+    If the download fails with a 401/403, create a HuggingFace access token,
+    add it as a Modal secret named "huggingface-secret" with key HF_TOKEN,
+    then uncomment the `secrets=[...]` line in @app.cls below.
+  • GPU: A10G (24 GB) fits the 4B model in NF4 with room to spare.
+    Swap to "A100" for faster throughput, or "T4" if cost is the priority
+    (T4 has 16 GB — may be tight with longer contexts).
 """
 
 from __future__ import annotations
 
+import base64
+import io
 import json
-import os
+import threading
 
 import modal
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 
+# ── Config ─────────────────────────────────────────────────────────────────
+
+MODEL_ID = "google/gemma-3-4b-it"   # change to "google/gemma-4-e4b-it" if available
+HF_CACHE = "/models/hf"
+
 # ── App & persistent volume ────────────────────────────────────────────────
 
-app = modal.App("gemma-4-e4b-chat")
-volume = modal.Volume.from_name("gemma-models", create_if_missing=True)
+app    = modal.App("gemma-4-e4b-chat")
+volume = modal.Volume.from_name("gemma-models-hf", create_if_missing=True)
 
-MODELS_DIR = "/models"
-MODEL_FILENAME  = "gemma-4-E4B-it-Q4_K_M.gguf"
-MODEL_PATH      = f"{MODELS_DIR}/{MODEL_FILENAME}"
-MODEL_URL       = (
-    "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/"
-    "gemma-4-E4B-it-Q4_K_M.gguf"
-)
-MMPROJ_FILENAME = "mmproj-BF16.gguf"
-MMPROJ_PATH     = f"{MODELS_DIR}/{MMPROJ_FILENAME}"
-MMPROJ_URL      = (
-    "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/"
-    "mmproj-BF16.gguf"
-)
+# ── Container image ────────────────────────────────────────────────────────
 
-# ── Container image (CUDA 12.2 dev + llama-cpp-python built with GPU) ──────
-
-cuda_image = (
-    modal.Image.from_registry(
-        "nvidia/cuda:12.2.0-devel-ubuntu22.04",
-        add_python="3.11",
+hf_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .pip_install(
+        "torch",
+        "torchvision",
+        "transformers>=4.48.0",
+        "accelerate>=0.30.0",
+        "bitsandbytes>=0.43.0",
+        "pillow",
+        "sentencepiece",
+        "protobuf",
+        "huggingface_hub[hf_transfer]",
+        "fastapi",
+        "uvicorn[standard]",
     )
-    .apt_install("build-essential", "gcc", "g++", "cmake", "ninja-build")
-    .run_commands(
-        "pip install httpx fastapi 'uvicorn[standard]'",
-        # The CUDA dev image has libcuda.so (stub) but not the versioned libcuda.so.1
-        # that the linker requires when building CLI tools. Create the symlink.
-        "ln -sf /usr/local/cuda/lib64/stubs/libcuda.so /usr/local/cuda/lib64/stubs/libcuda.so.1",
-        (
-            "CC=gcc CXX=g++ "
-            "LDFLAGS='-L/usr/local/cuda/lib64/stubs -Wl,-rpath-link,/usr/local/cuda/lib64/stubs' "
-            "CMAKE_ARGS='-DGGML_CUDA=ON "
-            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath-link,/usr/local/cuda/lib64/stubs' "
-            "pip install llama-cpp-python --no-cache-dir"
-        ),
-    )
+    .env({
+        "HF_XET_HIGH_PERFORMANCE": "1",
+        "HF_HOME": HF_CACHE,
+        "TRANSFORMERS_CACHE": HF_CACHE,
+    })
 )
 
 # ── Service class ──────────────────────────────────────────────────────────
 
 @app.cls(
-    image=cuda_image,
-    gpu="T4",
-    volumes={MODELS_DIR: volume},
+    image=hf_image,
+    gpu="A10G",
+    volumes={HF_CACHE: volume},
     timeout=600,
     scaledown_window=300,
+    secrets=[modal.Secret.from_name("huggingface")],
 )
 @modal.concurrent(max_inputs=1)
 class GemmaService:
 
     @modal.enter()
     def setup(self) -> None:
-        import httpx
+        import torch
+        from transformers import AutoModelForCausalLM, AutoProcessor, BitsAndBytesConfig
 
         volume.reload()
 
-        os.makedirs(MODELS_DIR, exist_ok=True)
-
-        def _download(url: str, dest: str, label: str) -> None:
-            tmp = dest + ".tmp"
-            with httpx.stream("GET", url, follow_redirects=True, timeout=None) as r:
-                r.raise_for_status()
-                total = int(r.headers.get("content-length", 0))
-                done  = 0
-                with open(tmp, "wb") as f:
-                    for chunk in r.iter_bytes(8 * 1024 * 1024):
-                        f.write(chunk)
-                        done += len(chunk)
-                        if total:
-                            pct = done / total * 100
-                            print(f"  [{label}] {pct:5.1f}%  "
-                                  f"{done//1_000_000}MB / {total//1_000_000}MB")
-            os.rename(tmp, dest)
-
-        # ── Download model if not cached ───────────────────────────────────
-        if not os.path.exists(MODEL_PATH):
-            print("[setup] Downloading main model from HuggingFace…")
-            _download(MODEL_URL, MODEL_PATH, "model")
-            volume.commit()
-            print("[setup] Main model committed to volume.")
-        else:
-            print(f"[setup] Model found at {MODEL_PATH}")
-
-        # ── Download mmproj (vision encoder) if not cached ────────────────
-        if not os.path.exists(MMPROJ_PATH):
-            print("[setup] Downloading mmproj (vision encoder) from HuggingFace…")
-            _download(MMPROJ_URL, MMPROJ_PATH, "mmproj")
-            volume.commit()
-            print("[setup] mmproj committed to volume.")
-        else:
-            print(f"[setup] mmproj found at {MMPROJ_PATH}")
-
-        # ── Load model (with vision if handler is available) ──────────────
-        from llama_cpp import Llama
-
-        chat_handler = None
-        for handler_name in ("Gemma4ChatHandler", "Gemma3ChatHandler"):
-            try:
-                import importlib
-                mod = importlib.import_module("llama_cpp.llama_chat_format")
-                cls = getattr(mod, handler_name)
-                chat_handler = cls(clip_model_path=MMPROJ_PATH)
-                print(f"[setup] Vision enabled via {handler_name}")
-                break
-            except (ImportError, AttributeError):
-                continue
-        if chat_handler is None:
-            print("[setup] No vision chat handler found — text-only mode")
-
-        print("[setup] Loading model…")
-        self.llm = Llama(
-            model_path=MODEL_PATH,
-            chat_handler=chat_handler,
-            n_gpu_layers=-1,
-            n_ctx=32768,
-            n_batch=512,
-            verbose=False,
+        quant_cfg = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
         )
+
+        print(f"[setup] Loading processor for {MODEL_ID} …")
+        self.processor = AutoProcessor.from_pretrained(MODEL_ID, cache_dir=HF_CACHE)
+
+        print(f"[setup] Loading model {MODEL_ID} with NF4 quantization …")
+        self.model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            quantization_config=quant_cfg,
+            device_map="auto",
+            cache_dir=HF_CACHE,
+        )
+        self.model.eval()
+        volume.commit()
         print("[setup] Model ready — container is hot.")
 
     # ── Chat endpoint (SSE streaming) ──────────────────────────────────────
 
     @modal.fastapi_endpoint(method="POST")
     async def chat(self, request: Request) -> StreamingResponse:
-        body = await request.json()
+        import torch
+        from PIL import Image
+        from transformers import TextIteratorStreamer
+
+        body        = await request.json()
         messages    = body.get("messages", [])
         temperature = float(body.get("temperature", 0.7))
-        max_tokens  = int(body.get("max_tokens", 4096))
+        max_tokens  = int(body.get("max_tokens", 2048))
+
+        # Convert OpenAI-style multimodal content to HuggingFace format.
+        # Frontend sends image_url parts with data: URIs; HF expects {"type": "image"}
+        # placeholders alongside a list of PIL images.
+        pil_images: list[Image.Image] = []
+        hf_messages: list[dict] = []
+
+        for msg in messages:
+            role    = msg["role"]
+            content = msg.get("content", "")
+
+            if isinstance(content, str):
+                hf_messages.append({"role": role, "content": content})
+            else:
+                hf_content = []
+                for part in content:
+                    if part.get("type") == "text":
+                        hf_content.append({"type": "text", "text": part["text"]})
+                    elif part.get("type") == "image_url":
+                        url = part["image_url"]["url"]
+                        if url.startswith("data:"):
+                            _, b64 = url.split(",", 1)
+                            img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+                            pil_images.append(img)
+                            hf_content.append({"type": "image"})
+                hf_messages.append({"role": role, "content": hf_content})
+
+        prompt = self.processor.apply_chat_template(
+            hf_messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+
+        inputs = self.processor(
+            text=prompt,
+            images=pil_images if pil_images else None,
+            return_tensors="pt",
+        ).to(self.model.device)
+
+        streamer = TextIteratorStreamer(
+            self.processor.tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True,
+        )
+
+        gen_kwargs = dict(
+            **inputs,
+            max_new_tokens=max_tokens,
+            do_sample=temperature > 0,
+            temperature=temperature if temperature > 0 else 1.0,
+            top_p=0.9,
+            repetition_penalty=1.1,
+            streamer=streamer,
+        )
+
+        def _generate() -> None:
+            with torch.no_grad():
+                self.model.generate(**gen_kwargs)
+
+        threading.Thread(target=_generate, daemon=True).start()
 
         def token_stream():
             try:
-                stream = self.llm.create_chat_completion(
-                    messages=messages,
-                    stream=True,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=0.9,
-                    repeat_penalty=1.1,
-                )
-                for chunk in stream:
-                    choice = chunk["choices"][0]
-                    content = choice.get("delta", {}).get("content")
-                    if content:
-                        yield f"data: {json.dumps({'content': content})}\n\n"
-                    if choice.get("finish_reason") is not None:
-                        yield f"data: {json.dumps({'done': True})}\n\n"
-                        return
+                for token in streamer:
+                    yield f"data: {json.dumps({'content': token})}\n\n"
+                yield f"data: {json.dumps({'done': True})}\n\n"
             except Exception as exc:
                 yield f"data: {json.dumps({'error': str(exc), 'done': True})}\n\n"
 
@@ -183,6 +196,7 @@ class GemmaService:
     def health(self) -> dict:
         return {
             "status": "ok",
-            "model": MODEL_FILENAME,
-            "loaded": hasattr(self, "llm"),
+            "model": MODEL_ID,
+            "loaded": hasattr(self, "model"),
+            "vision": True,
         }
