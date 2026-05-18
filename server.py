@@ -201,7 +201,8 @@ async def chat_completions(request: Request):
 
             async for evt in _stream_from_modal(mbody):
                 if evt.get("error"):
-                    yield f"data: {json.dumps({'id': cid, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': f\"[Error] {evt['error']}\"}, 'finish_reason': 'stop'}]})}\n\n"
+                    err_msg = f"[Error] {evt['error']}"
+                    yield f"data: {json.dumps({'id': cid, 'object': 'chat.completion.chunk', 'created': created, 'model': model, 'choices': [{'index': 0, 'delta': {'content': err_msg}, 'finish_reason': 'stop'}]})}\n\n"
                     yield "data: [DONE]\n\n"
                     return
                 if evt.get("content"):
