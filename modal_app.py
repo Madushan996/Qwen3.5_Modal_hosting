@@ -117,9 +117,10 @@ class GemmaService:
         temperature = float(body.get("temperature", 0.7))
         max_tokens  = int(body.get("max_tokens", 2048))
 
-        # Convert OpenAI-style multimodal messages to Gemma 4 HuggingFace format.
-        # Gemma 4 expects PIL images embedded directly inside the content list
-        # ({"type": "image", "image": <PIL.Image>}) rather than as a separate list.
+        # Convert OpenAI-style multimodal messages to HuggingFace format.
+        # Images are extracted into a separate PIL list; messages use {"type":"image"}
+        # placeholders so the tokenizer's chat template can insert the right tokens.
+        pil_images: list[Image.Image] = []
         hf_messages: list[dict] = []
 
         for msg in messages:
@@ -138,16 +139,20 @@ class GemmaService:
                         if url.startswith("data:"):
                             _, b64 = url.split(",", 1)
                             img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
-                            hf_content.append({"type": "image", "image": img})
+                            pil_images.append(img)
+                            hf_content.append({"type": "image"})
                 hf_messages.append({"role": role, "content": hf_content})
 
-        # Gemma 4 uses apply_chat_template with tokenize=True to handle both
-        # text and embedded images in one pass.
-        inputs = self.processor.apply_chat_template(
+        # The processor's chat template lives on its tokenizer for Gemma 4.
+        prompt = self.processor.tokenizer.apply_chat_template(
             hf_messages,
+            tokenize=False,
             add_generation_prompt=True,
-            tokenize=True,
-            return_dict=True,
+        )
+
+        inputs = self.processor(
+            text=prompt,
+            images=pil_images if pil_images else None,
             return_tensors="pt",
         ).to(self.model.device)
 
