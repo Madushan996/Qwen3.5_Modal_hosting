@@ -187,6 +187,21 @@ class GemmaService:
             except (ValueError, AttributeError):
                 prompt = _build_gemma_prompt(hf_messages)
 
+        # The chat template inserts one <|image|> token per image, but Gemma 4
+        # needs image_seq_length soft tokens (280) per image so all patch embeddings
+        # map to token positions. Expand each placeholder before calling processor.
+        if pil_images:
+            IMAGE_TOKEN   = "<|image|>"
+            IMAGE_SEQ_LEN = getattr(
+                self.processor.image_processor, "image_seq_length",
+                getattr(self.processor, "image_seq_length", 280),
+            )
+            expanded_seq = IMAGE_TOKEN * IMAGE_SEQ_LEN
+            # Use a neutral temp marker to avoid self-referential replacement
+            _TEMP = "\x00IMG\x00"
+            prompt = prompt.replace(IMAGE_TOKEN, _TEMP)
+            prompt = prompt.replace(_TEMP, expanded_seq)
+
         inputs = self.processor(
             text=prompt,
             images=pil_images if pil_images else None,
