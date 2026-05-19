@@ -26,7 +26,7 @@ from fastapi.responses import StreamingResponse
 
 # ── Config ─────────────────────────────────────────────────────────────────
 
-MODEL_ID = "google/gemma-3-4b-it"   # change to "google/gemma-4-e4b-it" if available
+MODEL_ID = "google/gemma-4-E4B"
 HF_CACHE = "/models/hf"
 
 # ── App & persistent volume ────────────────────────────────────────────────

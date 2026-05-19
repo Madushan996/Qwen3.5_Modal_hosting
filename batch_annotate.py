@@ -55,7 +55,7 @@ For each image, return ONLY a JSON object with these fields — no extra text:
 }"""
 
 DEFAULT_API_URL    = "http://localhost:8000/v1/chat/completions"
-DEFAULT_MODEL      = "gemma-3-4b-it"
+DEFAULT_MODEL      = "gemma-4-e4b"
 DEFAULT_CONCURRENCY = 5
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_TEMPERATURE = 0.2   # low for consistent/deterministic annotations

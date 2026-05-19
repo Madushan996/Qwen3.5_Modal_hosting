@@ -68,7 +68,7 @@ A full-stack chat application that runs Google's **Gemma 3 4B Instruct** multimo
 
 | Property | Value |
 |----------|-------|
-| Model | `google/gemma-3-4b-it` |
+| Model | [`google/gemma-4-E4B`](https://huggingface.co/google/gemma-4-E4B) |
 | Quantization | NF4 4-bit via `bitsandbytes` |
 | Inference engine | HuggingFace `transformers` + `accelerate` |
 | Vision | Native multimodal via `AutoProcessor` |
@@ -104,7 +104,7 @@ pip install -r requirements.txt
 
 The Gemma model is gated — you must request access before downloading it.
 
-1. Go to [huggingface.co/google/gemma-3-4b-it](https://huggingface.co/google/gemma-3-4b-it)
+1. Go to [huggingface.co/google/gemma-4-E4B](https://huggingface.co/google/gemma-4-E4B)
 2. Click **"Agree and access repository"** (you must be logged in)
 
 ### 4. Add your HuggingFace token to Modal
@@ -279,7 +279,7 @@ This processes every image in `./images` (recursively) and saves results to `ann
 | `--concurrency` | `5` | Number of parallel requests (Modal auto-scales containers) |
 | `--retries` | `3` | Retry attempts per image on failure |
 | `--api-url` | `http://localhost:8000/v1/chat/completions` | API endpoint |
-| `--model` | `gemma-3-4b-it` | Model name |
+| `--model` | `gemma-4-e4b` | Model name |
 
 ### Default output format
 
@@ -385,7 +385,7 @@ Once `server.py` is running, it exposes a fully OpenAI-compatible API at `http:/
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemma-3-4b-it",
+    "model": "gemma-4-e4b",
     "messages": [
       {"role": "system", "content": "You are a helpful assistant."},
       {"role": "user", "content": "What is the capital of France?"}
@@ -396,7 +396,7 @@ curl http://localhost:8000/v1/chat/completions \
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemma-3-4b-it",
+    "model": "gemma-4-e4b",
     "messages": [{"role": "user", "content": "Tell me a joke."}],
     "stream": true
   }'
@@ -414,7 +414,7 @@ client = OpenAI(
 
 # Non-streaming
 response = client.chat.completions.create(
-    model="gemma-3-4b-it",
+    model="gemma-4-e4b",
     messages=[
         {"role": "system", "content": "You are a concise assistant."},
         {"role": "user", "content": "Explain neural networks in one paragraph."},
@@ -424,7 +424,7 @@ print(response.choices[0].message.content)
 
 # Streaming
 stream = client.chat.completions.create(
-    model="gemma-3-4b-it",
+    model="gemma-4-e4b",
     messages=[{"role": "user", "content": "Write a short poem about the sea."}],
     stream=True,
 )
@@ -441,7 +441,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 llm = ChatOpenAI(
     base_url="http://localhost:8000/v1",
     api_key="not-needed",
-    model="gemma-3-4b-it",
+    model="gemma-4-e4b",
 )
 
 messages = [
@@ -455,7 +455,7 @@ print(llm.invoke(messages).content)
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `model` | string | — | Model name (any string is accepted — only `gemma-3-4b-it` is running) |
+| `model` | string | — | Model name (any string is accepted — only `gemma-4-e4b` is running) |
 | `messages` | array | — | Array of `{role, content}` objects. Roles: `system`, `user`, `assistant` |
 | `stream` | boolean | `false` | Return SSE chunks (`true`) or a single JSON response (`false`) |
 | `temperature` | float | `0.7` | Sampling temperature (0 = deterministic, 1 = creative) |
@@ -469,7 +469,7 @@ print(llm.invoke(messages).content)
 
 | Problem | Fix |
 |---------|-----|
-| `401 Unauthorized` on model download | Make sure you accepted the license at huggingface.co/google/gemma-3-4b-it and the `HF_TOKEN` in your `huggingface` Modal secret is valid |
+| `401 Unauthorized` on model download | Make sure you accepted the license at huggingface.co/google/gemma-4-E4B and the `HF_TOKEN` in your `huggingface` Modal secret is valid |
 | Vision badge shows grey | The health check couldn't reach Modal — check `MODAL_HEALTH_URL` in `.env` and that the backend is deployed |
 | Cold start takes a long time | Normal on first request after the container scales down — model loads from the volume (~30–60 seconds) |
 | `303 See Other` errors in server logs | Already fixed — `server.py` uses `follow_redirects=True` on all Modal requests |

@@ -166,7 +166,7 @@ async def list_models() -> JSONResponse:
     return JSONResponse({
         "object": "list",
         "data": [{
-            "id": "gemma-3-4b-it",
+            "id": "gemma-4-e4b",
             "object": "model",
             "created": 1700000000,
             "owned_by": "google",
