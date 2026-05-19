@@ -27,7 +27,7 @@ from fastapi.responses import StreamingResponse
 
 # ── Config ─────────────────────────────────────────────────────────────────
 
-MODEL_ID = "google/gemma-4-E4B"
+MODEL_ID = "google/gemma-4-E4B-it"   # instruction-tuned; base model has no chat template
 HF_CACHE = "/models/hf"
 
 # ── App & persistent volume ────────────────────────────────────────────────
@@ -58,6 +58,28 @@ hf_image = (
         "TRANSFORMERS_CACHE": HF_CACHE,
     })
 )
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+def _build_gemma_prompt(messages: list[dict]) -> str:
+    """Manual Gemma chat format used when the tokenizer has no chat template."""
+    parts = []
+    for msg in messages:
+        role    = msg["role"]
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(
+                p.get("text", "") for p in content if p.get("type") == "text"
+            )
+        if role == "system":
+            parts.append(f"<start_of_turn>user\n{content}<end_of_turn>\n")
+        elif role == "user":
+            parts.append(f"<start_of_turn>user\n{content}<end_of_turn>\n")
+        elif role == "assistant":
+            parts.append(f"<start_of_turn>model\n{content}<end_of_turn>\n")
+    parts.append("<start_of_turn>model\n")
+    return "".join(parts)
+
 
 # ── Service class ──────────────────────────────────────────────────────────
 
@@ -130,25 +152,34 @@ class GemmaService:
             if isinstance(content, str):
                 hf_messages.append({"role": role, "content": content})
             else:
-                hf_content = []
+                img_parts  = []
+                text_parts = []
                 for part in content:
                     if part.get("type") == "text":
-                        hf_content.append({"type": "text", "text": part["text"]})
+                        text_parts.append({"type": "text", "text": part["text"]})
                     elif part.get("type") == "image_url":
                         url = part["image_url"]["url"]
                         if url.startswith("data:"):
                             _, b64 = url.split(",", 1)
                             img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+                            # Cap at 1024 px — larger images can confuse the vision encoder
+                            if max(img.size) > 1024:
+                                img.thumbnail((1024, 1024), Image.LANCZOS)
                             pil_images.append(img)
-                            hf_content.append({"type": "image"})
-                hf_messages.append({"role": role, "content": hf_content})
+                            img_parts.append({"type": "image"})
+                # Gemma 4 requires image tokens to precede text in the content list
+                hf_messages.append({"role": role, "content": img_parts + text_parts})
 
-        # The processor's chat template lives on its tokenizer for Gemma 4.
-        prompt = self.processor.tokenizer.apply_chat_template(
-            hf_messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        # Build the prompt string. Try the tokenizer's chat template first;
+        # fall back to manually formatting with Gemma's turn tokens if absent.
+        try:
+            prompt = self.processor.tokenizer.apply_chat_template(
+                hf_messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        except ValueError:
+            prompt = _build_gemma_prompt(hf_messages)
 
         inputs = self.processor(
             text=prompt,
