@@ -90,8 +90,8 @@ A full-stack chat application that runs Alibaba's **Qwen 3.5 4B** vision-languag
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/Madushan996/Gemma-e4B-with-Modal.com-hosting.git
-cd Gemma-e4B-with-Modal.com-hosting
+git clone https://github.com/Madushan996/Qwen3.5_Modal_hosting.git
+cd Qwen3.5_Modal_hosting
 ```
 
 ### 2. Install local dependencies
