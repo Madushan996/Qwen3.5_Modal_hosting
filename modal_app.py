@@ -1,23 +1,10 @@
 """
-Gemma 4 E4B Chat — Modal Backend (HuggingFace transformers)
-Natively multimodal: text + image inputs via AutoProcessor.
-Deploy:  modal deploy modal_app.py
-
-Notes:
-  • Gemma models on HuggingFace require accepting the license on the model page.
-    If the download fails with a 401/403, create a HuggingFace access token,
-    add it as a Modal secret named "huggingface" with key HF_TOKEN,
-    then ensure the secrets=[...] line below is uncommented.
-  • GPU: A10G (24 GB) fits the 4B model in NF4 with room to spare.
-    Swap to "A100" for faster throughput, or "T4" if cost is the priority
-    (T4 has 16 GB — may be tight with longer contexts).
-  • Requires transformers>=4.51.0 for Gemma4ForConditionalGeneration support.
+Qwen3.5 4B Instruct Chat — Modal Backend (HuggingFace transformers)
+Text-only model. Deploy:  modal deploy modal_app.py
 """
 
 from __future__ import annotations
 
-import base64
-import io
 import json
 import threading
 
@@ -27,7 +14,7 @@ from fastapi.responses import StreamingResponse
 
 # ── Config ─────────────────────────────────────────────────────────────────
 
-MODEL_ID = "google/gemma-4-E4B-it"   # instruction-tuned; base model has no chat template
+MODEL_ID = "Qwen/Qwen3.5-4B-Instruct"
 HF_CACHE = "/models/hf"
 
 # ── App & persistent volume ────────────────────────────────────────────────
@@ -41,11 +28,9 @@ hf_image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(
         "torch",
-        "torchvision",
-        "transformers>=4.52.0",   # >=4.52 fixes Gemma4Processor.apply_chat_template bug
+        "transformers>=4.51.0",
         "accelerate>=0.30.0",
         "bitsandbytes>=0.43.0",
-        "pillow",
         "sentencepiece",
         "protobuf",
         "huggingface_hub[hf_transfer]",
@@ -58,28 +43,6 @@ hf_image = (
         "TRANSFORMERS_CACHE": HF_CACHE,
     })
 )
-
-# ── Helpers ────────────────────────────────────────────────────────────────
-
-def _build_gemma_prompt(messages: list[dict]) -> str:
-    """Manual Gemma chat format used when the tokenizer has no chat template."""
-    parts = []
-    for msg in messages:
-        role    = msg["role"]
-        content = msg.get("content", "")
-        if isinstance(content, list):
-            content = " ".join(
-                p.get("text", "") for p in content if p.get("type") == "text"
-            )
-        if role == "system":
-            parts.append(f"<start_of_turn>user\n{content}<end_of_turn>\n")
-        elif role == "user":
-            parts.append(f"<start_of_turn>user\n{content}<end_of_turn>\n")
-        elif role == "assistant":
-            parts.append(f"<start_of_turn>model\n{content}<end_of_turn>\n")
-    parts.append("<start_of_turn>model\n")
-    return "".join(parts)
-
 
 # ── Service class ──────────────────────────────────────────────────────────
 
@@ -97,11 +60,7 @@ class GemmaService:
     @modal.enter()
     def setup(self) -> None:
         import torch
-        from transformers import (
-            AutoProcessor,
-            BitsAndBytesConfig,
-            Gemma4ForConditionalGeneration,
-        )
+        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
         volume.reload()
 
@@ -112,11 +71,11 @@ class GemmaService:
             bnb_4bit_use_double_quant=True,
         )
 
-        print(f"[setup] Loading processor for {MODEL_ID} …")
-        self.processor = AutoProcessor.from_pretrained(MODEL_ID, cache_dir=HF_CACHE)
+        print(f"[setup] Loading tokenizer for {MODEL_ID} …")
+        self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, cache_dir=HF_CACHE)
 
         print(f"[setup] Loading model {MODEL_ID} with NF4 quantization …")
-        self.model = Gemma4ForConditionalGeneration.from_pretrained(
+        self.model = AutoModelForCausalLM.from_pretrained(
             MODEL_ID,
             quantization_config=quant_cfg,
             device_map="auto",
@@ -131,7 +90,6 @@ class GemmaService:
     @modal.fastapi_endpoint(method="POST")
     async def chat(self, request: Request) -> StreamingResponse:
         import torch
-        from PIL import Image
         from transformers import TextIteratorStreamer
 
         body        = await request.json()
@@ -139,51 +97,28 @@ class GemmaService:
         temperature = float(body.get("temperature", 0.7))
         max_tokens  = int(body.get("max_tokens", 2048))
 
-        # Convert OpenAI-style multimodal messages to HuggingFace format.
-        # Images are extracted into a separate PIL list; messages use {"type":"image"}
-        # placeholders so the tokenizer's chat template can insert the right tokens.
-        pil_images: list[Image.Image] = []
+        # Flatten multimodal content to text — Qwen3.5-4B is text-only
         hf_messages: list[dict] = []
-
         for msg in messages:
             role    = msg["role"]
             content = msg.get("content", "")
-
-            if isinstance(content, str):
+            if isinstance(content, list):
+                content = " ".join(
+                    p.get("text", "") for p in content if p.get("type") == "text"
+                )
+            if content:
                 hf_messages.append({"role": role, "content": content})
-            else:
-                img_parts  = []
-                text_parts = []
-                for part in content:
-                    if part.get("type") == "text":
-                        text_parts.append({"type": "text", "text": part["text"]})
-                    elif part.get("type") == "image_url":
-                        url = part["image_url"]["url"]
-                        if url.startswith("data:"):
-                            _, b64 = url.split(",", 1)
-                            img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
-                            if max(img.size) > 1024:
-                                img.thumbnail((1024, 1024), Image.LANCZOS)
-                            pil_images.append(img)
-                            # Embed PIL directly so apply_chat_template(tokenize=True)
-                            # can handle token count alignment internally (canonical API)
-                            img_parts.append({"type": "image", "image": img})
-                # Images must precede text in each turn for Gemma 4
-                hf_messages.append({"role": role, "content": img_parts + text_parts})
 
-        # Canonical Gemma 4 API: apply_chat_template with tokenize=True handles
-        # image token expansion (1 placeholder → N soft tokens) and pixel_values
-        # alignment in one coordinated step.
-        inputs = self.processor.apply_chat_template(
+        text = self.tokenizer.apply_chat_template(
             hf_messages,
+            tokenize=False,
             add_generation_prompt=True,
-            tokenize=True,
-            return_dict=True,
-            return_tensors="pt",
-        ).to(self.model.device)
+            enable_thinking=False,  # disable chain-of-thought for plain chat
+        )
+        inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
 
         streamer = TextIteratorStreamer(
-            self.processor.tokenizer,
+            self.tokenizer,
             skip_prompt=True,
             skip_special_tokens=True,
         )
@@ -230,5 +165,5 @@ class GemmaService:
             "status": "ok",
             "model": MODEL_ID,
             "loaded": hasattr(self, "model"),
-            "vision": True,
+            "vision": False,
         }
