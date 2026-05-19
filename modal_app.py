@@ -6,11 +6,12 @@ Deploy:  modal deploy modal_app.py
 Notes:
   • Gemma models on HuggingFace require accepting the license on the model page.
     If the download fails with a 401/403, create a HuggingFace access token,
-    add it as a Modal secret named "huggingface-secret" with key HF_TOKEN,
-    then uncomment the `secrets=[...]` line in @app.cls below.
+    add it as a Modal secret named "huggingface" with key HF_TOKEN,
+    then ensure the secrets=[...] line below is uncommented.
   • GPU: A10G (24 GB) fits the 4B model in NF4 with room to spare.
     Swap to "A100" for faster throughput, or "T4" if cost is the priority
     (T4 has 16 GB — may be tight with longer contexts).
+  • Requires transformers>=4.51.0 for Gemma4ForConditionalGeneration support.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ hf_image = (
     .pip_install(
         "torch",
         "torchvision",
-        "transformers>=4.48.0",
+        "transformers>=4.51.0",   # Gemma4ForConditionalGeneration requires >=4.51
         "accelerate>=0.30.0",
         "bitsandbytes>=0.43.0",
         "pillow",
@@ -74,7 +75,11 @@ class GemmaService:
     @modal.enter()
     def setup(self) -> None:
         import torch
-        from transformers import AutoModelForCausalLM, AutoProcessor, BitsAndBytesConfig
+        from transformers import (
+            AutoProcessor,
+            BitsAndBytesConfig,
+            Gemma4ForConditionalGeneration,
+        )
 
         volume.reload()
 
@@ -89,7 +94,7 @@ class GemmaService:
         self.processor = AutoProcessor.from_pretrained(MODEL_ID, cache_dir=HF_CACHE)
 
         print(f"[setup] Loading model {MODEL_ID} with NF4 quantization …")
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = Gemma4ForConditionalGeneration.from_pretrained(
             MODEL_ID,
             quantization_config=quant_cfg,
             device_map="auto",
@@ -112,10 +117,9 @@ class GemmaService:
         temperature = float(body.get("temperature", 0.7))
         max_tokens  = int(body.get("max_tokens", 2048))
 
-        # Convert OpenAI-style multimodal content to HuggingFace format.
-        # Frontend sends image_url parts with data: URIs; HF expects {"type": "image"}
-        # placeholders alongside a list of PIL images.
-        pil_images: list[Image.Image] = []
+        # Convert OpenAI-style multimodal messages to Gemma 4 HuggingFace format.
+        # Gemma 4 expects PIL images embedded directly inside the content list
+        # ({"type": "image", "image": <PIL.Image>}) rather than as a separate list.
         hf_messages: list[dict] = []
 
         for msg in messages:
@@ -134,19 +138,16 @@ class GemmaService:
                         if url.startswith("data:"):
                             _, b64 = url.split(",", 1)
                             img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
-                            pil_images.append(img)
-                            hf_content.append({"type": "image"})
+                            hf_content.append({"type": "image", "image": img})
                 hf_messages.append({"role": role, "content": hf_content})
 
-        prompt = self.processor.apply_chat_template(
+        # Gemma 4 uses apply_chat_template with tokenize=True to handle both
+        # text and embedded images in one pass.
+        inputs = self.processor.apply_chat_template(
             hf_messages,
-            tokenize=False,
             add_generation_prompt=True,
-        )
-
-        inputs = self.processor(
-            text=prompt,
-            images=pil_images if pil_images else None,
+            tokenize=True,
+            return_dict=True,
             return_tensors="pt",
         ).to(self.model.device)
 
