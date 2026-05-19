@@ -165,37 +165,33 @@ class GemmaService:
                             if max(img.size) > 1024:
                                 img.thumbnail((1024, 1024), Image.LANCZOS)
                             pil_images.append(img)
-                            # Embed the PIL image directly so apply_chat_template
-                            # can extract it without a separate 'images=' kwarg
-                            img_parts.append({"type": "image", "image": img})
-                # Gemma 4 requires image tokens to precede text in the content list
+                            img_parts.append({"type": "image"})
+                # Images must precede text in each turn for Gemma 4
                 hf_messages.append({"role": role, "content": img_parts + text_parts})
 
-        # processor.apply_chat_template handles image token insertion and pixel
-        # encoding in one coordinated step. Do NOT also pass images= here —
-        # the processor extracts them from the {"type":"image","image":...} dicts
-        # and passing images= separately causes "multiple values" TypeError.
+        # Use apply_chat_template only for the text prompt (tokenize=False).
+        # Calling it with tokenize=True is broken for Gemma4Processor in
+        # transformers 4.51 — it passes 'images' twice → TypeError.
+        # Instead call processor() directly with the rendered text + PIL list.
         try:
-            inputs = self.processor.apply_chat_template(
+            prompt = self.processor.apply_chat_template(
                 hf_messages,
                 add_generation_prompt=True,
-                tokenize=True,
-                return_dict=True,
-                return_tensors="pt",
-            ).to(self.model.device)
-        except (ValueError, AttributeError, TypeError):
-            # Fallback: build prompt string + call processor separately
+                tokenize=False,
+            )
+        except (ValueError, AttributeError):
             try:
                 prompt = self.processor.tokenizer.apply_chat_template(
                     hf_messages, tokenize=False, add_generation_prompt=True,
                 )
-            except ValueError:
+            except (ValueError, AttributeError):
                 prompt = _build_gemma_prompt(hf_messages)
-            inputs = self.processor(
-                text=prompt,
-                images=pil_images if pil_images else None,
-                return_tensors="pt",
-            ).to(self.model.device)
+
+        inputs = self.processor(
+            text=prompt,
+            images=pil_images if pil_images else None,
+            return_tensors="pt",
+        ).to(self.model.device)
 
         streamer = TextIteratorStreamer(
             self.processor.tokenizer,
