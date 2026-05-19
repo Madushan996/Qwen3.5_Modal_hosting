@@ -170,22 +170,31 @@ class GemmaService:
                 # Gemma 4 requires image tokens to precede text in the content list
                 hf_messages.append({"role": role, "content": img_parts + text_parts})
 
-        # Build the prompt string. Try the tokenizer's chat template first;
-        # fall back to manually formatting with Gemma's turn tokens if absent.
+        # Use processor.apply_chat_template so image tokens and pixel values are
+        # aligned in one shot — splitting into tokenizer.apply_chat_template()
+        # then processor() causes image/token misalignment for Gemma 4.
         try:
-            prompt = self.processor.tokenizer.apply_chat_template(
+            inputs = self.processor.apply_chat_template(
                 hf_messages,
-                tokenize=False,
                 add_generation_prompt=True,
-            )
-        except ValueError:
-            prompt = _build_gemma_prompt(hf_messages)
-
-        inputs = self.processor(
-            text=prompt,
-            images=pil_images if pil_images else None,
-            return_tensors="pt",
-        ).to(self.model.device)
+                tokenize=True,
+                return_dict=True,
+                return_tensors="pt",
+                images=pil_images if pil_images else None,
+            ).to(self.model.device)
+        except (ValueError, AttributeError):
+            # Fallback for models without processor-level chat template
+            try:
+                prompt = self.processor.tokenizer.apply_chat_template(
+                    hf_messages, tokenize=False, add_generation_prompt=True,
+                )
+            except ValueError:
+                prompt = _build_gemma_prompt(hf_messages)
+            inputs = self.processor(
+                text=prompt,
+                images=pil_images if pil_images else None,
+                return_tensors="pt",
+            ).to(self.model.device)
 
         streamer = TextIteratorStreamer(
             self.processor.tokenizer,
