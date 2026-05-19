@@ -1,6 +1,6 @@
 """
-Qwen3.5 4B Instruct Chat — Modal Backend (HuggingFace transformers)
-Text-only model. Deploy:  modal deploy modal_app.py
+Qwen3.5-4B Chat — Modal Backend (HuggingFace transformers)
+Vision-language model. Deploy: modal deploy modal_app.py
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 
 # ── Config ─────────────────────────────────────────────────────────────────
 
-MODEL_ID = "Qwen/Qwen3.5-4B-Instruct"
+MODEL_ID = "Qwen/Qwen3.5-4B"
 HF_CACHE = "/models/hf"
 
 # ── App & persistent volume ────────────────────────────────────────────────
@@ -26,14 +26,17 @@ volume = modal.Volume.from_name("gemma-models-hf", create_if_missing=True)
 
 hf_image = (
     modal.Image.debian_slim(python_version="3.11")
+    .apt_install("git")
     .pip_install(
         "torch",
-        "transformers>=4.51.0",
+        "torchvision",
+        "transformers @ git+https://github.com/huggingface/transformers.git@main",
         "accelerate>=0.30.0",
         "bitsandbytes>=0.43.0",
         "sentencepiece",
         "protobuf",
         "huggingface_hub[hf_transfer]",
+        "pillow",
         "fastapi",
         "uvicorn[standard]",
     )
@@ -60,7 +63,7 @@ class GemmaService:
     @modal.enter()
     def setup(self) -> None:
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+        from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
 
         volume.reload()
 
@@ -71,11 +74,11 @@ class GemmaService:
             bnb_4bit_use_double_quant=True,
         )
 
-        print(f"[setup] Loading tokenizer for {MODEL_ID} …")
-        self.tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, cache_dir=HF_CACHE)
+        print(f"[setup] Loading processor for {MODEL_ID} …")
+        self.processor = AutoProcessor.from_pretrained(MODEL_ID, cache_dir=HF_CACHE)
 
         print(f"[setup] Loading model {MODEL_ID} with NF4 quantization …")
-        self.model = AutoModelForCausalLM.from_pretrained(
+        self.model = AutoModelForImageTextToText.from_pretrained(
             MODEL_ID,
             quantization_config=quant_cfg,
             device_map="auto",
@@ -89,7 +92,10 @@ class GemmaService:
 
     @modal.fastapi_endpoint(method="POST")
     async def chat(self, request: Request) -> StreamingResponse:
+        import base64
+        import io
         import torch
+        from PIL import Image
         from transformers import TextIteratorStreamer
 
         body        = await request.json()
@@ -97,28 +103,64 @@ class GemmaService:
         temperature = float(body.get("temperature", 0.7))
         max_tokens  = int(body.get("max_tokens", 2048))
 
-        # Flatten multimodal content to text — Qwen3.5-4B is text-only
         hf_messages: list[dict] = []
         for msg in messages:
             role    = msg["role"]
             content = msg.get("content", "")
-            if isinstance(content, list):
-                content = " ".join(
-                    p.get("text", "") for p in content if p.get("type") == "text"
-                )
-            if content:
-                hf_messages.append({"role": role, "content": content})
 
-        text = self.tokenizer.apply_chat_template(
-            hf_messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False,  # disable chain-of-thought for plain chat
-        )
-        inputs = self.tokenizer(text, return_tensors="pt").to(self.model.device)
+            if role == "system":
+                # System prompt stays as plain string
+                if isinstance(content, list):
+                    content = " ".join(
+                        p.get("text", "") for p in content if p.get("type") == "text"
+                    )
+                if content:
+                    hf_messages.append({"role": role, "content": content})
+            else:
+                # User / assistant: build list content so images can be included
+                if isinstance(content, list):
+                    hf_content = []
+                    for part in content:
+                        ptype = part.get("type", "")
+                        if ptype == "text":
+                            hf_content.append({"type": "text", "text": part["text"]})
+                        elif ptype == "image_url":
+                            url = part["image_url"]["url"]
+                            if url.startswith("data:image"):
+                                _, b64data = url.split(",", 1)
+                                img = Image.open(
+                                    io.BytesIO(base64.b64decode(b64data))
+                                ).convert("RGB")
+                                hf_content.append({"type": "image", "image": img})
+                            else:
+                                hf_content.append({"type": "image", "url": url})
+                    if hf_content:
+                        hf_messages.append({"role": role, "content": hf_content})
+                else:
+                    if content:
+                        hf_messages.append({"role": role, "content": content})
+
+        # apply_chat_template with tokenization — processor handles image preprocessing
+        try:
+            inputs = self.processor.apply_chat_template(
+                hf_messages,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=True,
+                return_tensors="pt",
+                enable_thinking=False,
+            ).to(self.model.device)
+        except TypeError:
+            inputs = self.processor.apply_chat_template(
+                hf_messages,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_dict=True,
+                return_tensors="pt",
+            ).to(self.model.device)
 
         streamer = TextIteratorStreamer(
-            self.tokenizer,
+            self.processor.tokenizer,
             skip_prompt=True,
             skip_special_tokens=True,
         )
@@ -128,7 +170,8 @@ class GemmaService:
             max_new_tokens=max_tokens,
             do_sample=temperature > 0,
             temperature=temperature if temperature > 0 else 1.0,
-            top_p=0.9,
+            top_p=0.8,
+            top_k=20,
             repetition_penalty=1.1,
             streamer=streamer,
         )
@@ -165,5 +208,5 @@ class GemmaService:
             "status": "ok",
             "model": MODEL_ID,
             "loaded": hasattr(self, "model"),
-            "vision": False,
+            "vision": True,
         }

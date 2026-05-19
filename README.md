@@ -1,8 +1,8 @@
-# Gemma Chat — Modal.com Hosted
+# Qwen Chat — Modal.com Hosted
 
-A full-stack chat application that runs Google's **Gemma 3 4B Instruct** multimodal language model on a cloud GPU, accessible through a local web interface. The model is hosted serverlessly on [Modal.com](https://modal.com) using an **A10G GPU** via HuggingFace `transformers`, while a lightweight local proxy serves the UI and handles file uploads.
+A full-stack chat application that runs Alibaba's **Qwen 3.5 4B** vision-language model on a cloud GPU, accessible through a local web interface. The model is hosted serverlessly on [Modal.com](https://modal.com) using an **A10G GPU** via HuggingFace `transformers`, while a lightweight local proxy serves the UI and handles file uploads.
 
-![Model](https://img.shields.io/badge/Model-Gemma%203%204B%20Instruct-4285f4)
+![Model](https://img.shields.io/badge/Model-Qwen%203.5%204B-6c5ce7)
 ![GPU](https://img.shields.io/badge/GPU-NVIDIA%20A10G%2024GB-76b900)
 ![Backend](https://img.shields.io/badge/Backend-Modal.com-orange)
 ![Vision](https://img.shields.io/badge/Vision-Enabled-22c55e)
@@ -11,17 +11,15 @@ A full-stack chat application that runs Google's **Gemma 3 4B Instruct** multimo
 
 ## Features
 
-- **Native vision (image analysis)** — send images directly to the model; full multimodal support via HuggingFace `AutoProcessor`
+- **Native vision** — send images and the model analyzes them natively (full multimodal, not OCR)
 - **Streaming responses** — tokens appear in real time via Server-Sent Events (SSE)
 - **OpenAI-compatible API** — drop-in replacement for the OpenAI API on `http://localhost:8000/v1`
 - **Custom system prompt** — editable in the sidebar, persisted in `localStorage`
-- **File attachments without text** — attach images or documents and send without typing anything
+- **File attachments** — images, PDFs, code, and text documents (images analyzed by model)
 - **Image preview in chat** — sent images appear inline in your message bubble
-- **Thinking / reasoning** — collapsible block shows the model's step-by-step reasoning
-- **File attachments** — images, PDFs, code, and text documents
 - **Session history** — previous chats saved in browser `localStorage` with sidebar navigation
 - **Persistent model cache** — model weights downloaded once to a Modal Volume, never re-downloaded
-- **Light theme UI** — warm, readable interface
+- **Dark sidebar UI** — clean, modern interface inspired by leading AI chat apps
 
 ---
 
@@ -57,7 +55,7 @@ A full-stack chat application that runs Google's **Gemma 3 4B Instruct** multimo
 |------|---------|
 | `modal_app.py` | Modal backend — builds the container image, loads the model with 4-bit quantization, serves chat and health endpoints |
 | `server.py` | Local FastAPI proxy — serves the web UI, handles file uploads, forwards chat requests to Modal |
-| `static/index.html` | Single-file frontend — light theme chat UI with streaming, system prompt, vision, thinking blocks, and session history |
+| `static/index.html` | Single-file frontend — dark sidebar chat UI with streaming, system prompt, vision, thinking blocks, and session history |
 | `requirements.txt` | Local Python dependencies |
 | `start.bat` | Windows convenience launcher |
 | `.env.example` | Template for Modal endpoint URLs |
@@ -68,11 +66,13 @@ A full-stack chat application that runs Google's **Gemma 3 4B Instruct** multimo
 
 | Property | Value |
 |----------|-------|
-| Model | [`google/gemma-4-E4B`](https://huggingface.co/google/gemma-4-E4B) |
+| Model | [`Qwen/Qwen3.5-4B`](https://huggingface.co/Qwen/Qwen3.5-4B) |
 | Quantization | NF4 4-bit via `bitsandbytes` |
-| Inference engine | HuggingFace `transformers` + `accelerate` |
-| Vision | Native multimodal via `AutoProcessor` |
+| Inference engine | HuggingFace `transformers` (latest from main) |
+| Vision | Native multimodal via `AutoProcessor` + `AutoModelForImageTextToText` |
 | GPU | NVIDIA A10G (24 GB VRAM) |
+| Context length | Up to 262,144 tokens natively |
+| Languages | 201 languages supported |
 
 ---
 
@@ -81,7 +81,7 @@ A full-stack chat application that runs Google's **Gemma 3 4B Instruct** multimo
 - [Python 3.10+](https://python.org)
 - [Modal account](https://modal.com) (free tier works for testing)
 - [Modal CLI](https://modal.com/docs/guide/installation)
-- A [HuggingFace account](https://huggingface.co) with access to the Gemma model
+- A [HuggingFace account](https://huggingface.co) — Qwen 3.5 is **not gated**, no approval needed
 
 ---
 
@@ -100,62 +100,56 @@ cd Gemma-e4B-with-Modal.com-hosting
 pip install -r requirements.txt
 ```
 
-### 3. Accept the Gemma model license on HuggingFace
-
-The Gemma model is gated — you must request access before downloading it.
-
-1. Go to [huggingface.co/google/gemma-4-E4B](https://huggingface.co/google/gemma-4-E4B)
-2. Click **"Agree and access repository"** (you must be logged in)
-
-### 4. Add your HuggingFace token to Modal
-
-Create a read token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens), then add it as a Modal secret:
-
-```bash
-modal secret create huggingface HF_TOKEN=hf_your_token_here
-```
-
-> The secret must be named exactly `huggingface` — that's what `modal_app.py` references.
-
-### 5. Set up the Modal CLI
+### 3. Set up Modal
 
 ```bash
 pip install modal
 modal setup   # opens browser to authenticate
 ```
 
-### 6. Deploy the Modal backend
+### 4. Add your HuggingFace token to Modal
+
+Create a read token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens), then:
+
+```bash
+modal secret create huggingface HF_TOKEN=hf_your_token_here
+```
+
+> The secret must be named exactly `huggingface` — that's what `modal_app.py` references.
+> Qwen 3.5 is open-access so any valid HF token works.
+
+### 5. Deploy the Modal backend
 
 ```bash
 modal deploy modal_app.py
 ```
 
 This will:
-- Build a Debian-based Docker image and install `torch`, `transformers`, `bitsandbytes`, and friends (~2–3 minutes, cached afterwards)
+- Install `git` in the container, then build a Debian-based Docker image with `torch`, `transformers` (from main), `bitsandbytes`, and friends — ~3–5 minutes, fully cached afterwards
 - Create a persistent Modal Volume named `gemma-models-hf`
-- Print two endpoint URLs when complete
+- Print two endpoint URLs when complete:
 
 ```
 ✓ Created web endpoint for GemmaService.health => https://YOUR-WORKSPACE--gemma-4-e4b-chat-gemmaservice-health.modal.run
 ✓ Created web endpoint for GemmaService.chat  => https://YOUR-WORKSPACE--gemma-4-e4b-chat-gemmaservice-chat.modal.run
 ```
 
-> **First cold start** will download the Gemma model weights from HuggingFace (~8 GB) into the Modal Volume. This takes a few minutes and only happens once — subsequent starts load from the cached volume.
+> **First cold start** will download the Qwen 3.5 4B model weights from HuggingFace (~8 GB) into the Modal Volume. This takes a few minutes and only happens once — subsequent starts load from the cached volume (~30–60 s warm-up).
 
-### 7. Configure environment
+### 6. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and paste in your two endpoint URLs:
+Edit `.env` and paste your two endpoint URLs:
 
 ```env
 MODAL_CHAT_URL=https://YOUR-WORKSPACE--gemma-4-e4b-chat-gemmaservice-chat.modal.run
 MODAL_HEALTH_URL=https://YOUR-WORKSPACE--gemma-4-e4b-chat-gemmaservice-health.modal.run
 ```
 
-### 8. Start the local server
+### 7. Start the local server
 
 **Windows:**
 ```bat
@@ -179,11 +173,14 @@ Open **[http://localhost:8000](http://localhost:8000)** in your browser.
 - Click the **paperclip** button to attach files
 - You can send **images or documents without typing any text** — just attach and press Send
 
+### Vision
+
+Qwen 3.5 4B is a native vision-language model — it sees images directly (pixel-level understanding, not OCR). Attach any image and ask about it. The **Vision enabled** badge in the sidebar footer confirms it's active.
+
 ### System prompt
 
-Click **System Prompt** in the sidebar to expand the editor. Whatever you type there is sent as the `system` role message at the start of every new conversation. Changes are saved automatically to `localStorage`.
+Click **System Prompt** in the sidebar to expand the editor. Your prompt is applied to every new conversation and saved automatically to `localStorage`.
 
-Examples:
 ```
 You are a concise coding assistant. Always reply in Python.
 ```
@@ -191,25 +188,15 @@ You are a concise coding assistant. Always reply in Python.
 You are a JSON annotation tool. Return only valid JSON, no prose.
 ```
 
-Leave it blank to use the default Gemma persona.
+Leave it blank to use the default Qwen persona.
 
 ### File attachments
 
 | File type | How it's handled |
 |-----------|-----------------|
-| Images (PNG, JPG, WebP, GIF, BMP) | Sent as base64 to the model — Gemma sees the image natively |
+| Images (PNG, JPG, WebP, GIF, BMP) | Sent as base64 to the model — Qwen sees the image natively |
 | PDFs | Text extracted with `pypdf` and injected as context (up to 40,000 chars) |
 | Text, code, Markdown, CSV, JSON… | Content read directly and injected as context |
-
-Attached images appear as a preview in your chat bubble before the model responds.
-
-### Vision status
-
-The sidebar footer shows a **Vision enabled** badge (green dot) when the backend confirms multimodal support is active. If it shows grey, check the Modal container logs.
-
-### Thinking / reasoning
-
-When Gemma reasons before answering, a collapsible **Reasoning** block appears above the response. Click it to expand or collapse. The block pulses while the model is still thinking and collapses automatically when the response is complete.
 
 ---
 
@@ -225,16 +212,16 @@ When Gemma reasons before answering, a collapsible **Reasoning** block appears a
 
 A typical 1–2 second generation turn costs under $0.001.
 
-> To reduce costs, change `gpu="A10G"` to `gpu="T4"` in `modal_app.py`. The T4 has 16 GB VRAM which fits the NF4-quantized 4B model, though it may be tight on long contexts.
+> To reduce costs, change `gpu="A10G"` to `gpu="T4"` in `modal_app.py`.
 
 ---
 
 ## Local Development
 
-Frontend changes (no redeploy needed):
+Frontend changes — no redeploy needed:
 
 ```bash
-python server.py   # hot-reload enabled
+python server.py
 ```
 
 Edit `static/index.html` and refresh the browser.
@@ -245,160 +232,43 @@ Backend changes require a redeploy:
 modal deploy modal_app.py
 ```
 
-After the first build the Modal image is fully cached — code-only changes deploy in under 10 seconds.
+After the first build, the Modal image is fully cached — code-only changes deploy in under 10 seconds.
 
 ---
 
 ## Batch Image Annotation
 
-`batch_annotate.py` lets you annotate thousands of images automatically using the Gemma API. It reads a folder of images, sends them concurrently to `/v1/chat/completions`, and saves one JSON record per image to a `.jsonl` file.
-
-### Install dependencies
+`batch_annotate.py` lets you annotate thousands of images automatically using the API. It reads a folder of images, sends them concurrently to `/v1/chat/completions`, and saves one JSON record per image to a `.jsonl` file.
 
 ```bash
-pip install -r requirements.txt
-```
-
-### Basic usage
-
-Make sure `server.py` is running first, then:
-
-```bash
+# Make sure server.py is running first
 python batch_annotate.py --input ./images
 ```
-
-This processes every image in `./images` (recursively) and saves results to `annotations.jsonl`.
 
 ### Options
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--input` | *(required)* | Folder of images to annotate |
-| `--output` | `annotations.jsonl` | Output file (JSONL — one JSON record per line) |
-| `--prompt` | Built-in schema | System prompt that defines what the model returns |
-| `--concurrency` | `5` | Number of parallel requests (Modal auto-scales containers) |
+| `--output` | `annotations.jsonl` | Output file (JSONL) |
+| `--prompt` | Built-in schema | System prompt defining what the model returns |
+| `--concurrency` | `5` | Number of parallel requests |
 | `--retries` | `3` | Retry attempts per image on failure |
-| `--api-url` | `http://localhost:8000/v1/chat/completions` | API endpoint |
-| `--model` | `gemma-4-e4b` | Model name |
-
-### Default output format
-
-Each line in the `.jsonl` file is a JSON object:
-
-```json
-{
-  "filename": "cat.jpg",
-  "path": "/path/to/images/cat.jpg",
-  "status": "ok",
-  "annotation": {
-    "label": "cat",
-    "description": "A tabby cat sitting on a wooden floor.",
-    "objects": ["cat", "wooden floor"],
-    "colors": ["orange", "brown", "white"],
-    "confidence": "high"
-  }
-}
-```
-
-Failed images have `"status": "error"` and an `"error"` field instead of `"annotation"`.
-
-### Custom annotation schema
-
-Pass a `--prompt` to define exactly what the model should return:
-
-```bash
-# Defect detection
-python batch_annotate.py --input ./products \
-  --prompt "Return JSON with: defect_found (true/false), defect_type (list), severity (low/medium/high/none), notes (string)."
-
-# Multi-label classification
-python batch_annotate.py --input ./photos \
-  --prompt "Return JSON with: scene (indoor/outdoor), people_present (true/false), objects (list of up to 5 main objects)."
-
-# Medical / scientific (adapt as needed)
-python batch_annotate.py --input ./scans \
-  --prompt "Return JSON with: tissue_type, anomalies_detected (true/false), region_of_interest (description)."
-```
-
-### Resume support
-
-If the run is interrupted, just re-run the same command. Images already recorded in the output file are automatically skipped.
-
-```bash
-# Run 1 — interrupted at image 2000
-python batch_annotate.py --input ./images --output annotations.jsonl
-
-# Run 2 — resumes from image 2001
-python batch_annotate.py --input ./images --output annotations.jsonl
-```
-
-### Load results in Python
-
-```python
-import json
-
-records = []
-with open("annotations.jsonl") as f:
-    for line in f:
-        records.append(json.loads(line))
-
-# Filter successful ones
-ok = [r for r in records if r["status"] == "ok"]
-print(f"{len(ok)} / {len(records)} succeeded")
-
-# Convert to a list of flat dicts for pandas
-import pandas as pd
-rows = [{"filename": r["filename"], **r["annotation"]} for r in ok]
-df = pd.DataFrame(rows)
-print(df.head())
-```
-
-### Expected throughput for 5 000 images
-
-With `--concurrency 5` (5 parallel GPU containers on Modal), assuming ~5 seconds per image:
-
-| Metric | Value |
-|--------|-------|
-| Wall-clock time | ~80–90 minutes |
-| GPU compute time | ~25 000 GPU-seconds |
-| Estimated cost | ~$8 (A10G at ~$0.00032/s) |
-
-Increase `--concurrency` to go faster (Modal will spin up more containers automatically). Each concurrent request = one additional GPU container.
 
 ---
 
 ## OpenAI-Compatible API
 
-Once `server.py` is running, it exposes a fully OpenAI-compatible API at `http://localhost:8000/v1`. Any tool or library that supports a custom OpenAI base URL can use Gemma as a drop-in replacement — no code changes needed beyond pointing it at your local server.
-
-### Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/v1/models` | List available models |
-| `POST` | `/v1/chat/completions` | Chat completions (streaming and non-streaming) |
+`server.py` exposes a fully OpenAI-compatible API at `http://localhost:8000/v1`.
 
 ### curl
 
 ```bash
-# Non-streaming
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemma-4-e4b",
-    "messages": [
-      {"role": "system", "content": "You are a helpful assistant."},
-      {"role": "user", "content": "What is the capital of France?"}
-    ]
-  }'
-
-# Streaming
-curl http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemma-4-e4b",
-    "messages": [{"role": "user", "content": "Tell me a joke."}],
-    "stream": true
+    "model": "qwen3.5-4b",
+    "messages": [{"role": "user", "content": "What is the capital of France?"}]
   }'
 ```
 
@@ -407,61 +277,14 @@ curl http://localhost:8000/v1/chat/completions \
 ```python
 from openai import OpenAI
 
-client = OpenAI(
-    base_url="http://localhost:8000/v1",
-    api_key="not-needed",  # required by the library but ignored
-)
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="not-needed")
 
-# Non-streaming
 response = client.chat.completions.create(
-    model="gemma-4-e4b",
-    messages=[
-        {"role": "system", "content": "You are a concise assistant."},
-        {"role": "user", "content": "Explain neural networks in one paragraph."},
-    ],
+    model="qwen3.5-4b",
+    messages=[{"role": "user", "content": "Explain neural networks in one paragraph."}],
 )
 print(response.choices[0].message.content)
-
-# Streaming
-stream = client.chat.completions.create(
-    model="gemma-4-e4b",
-    messages=[{"role": "user", "content": "Write a short poem about the sea."}],
-    stream=True,
-)
-for chunk in stream:
-    print(chunk.choices[0].delta.content or "", end="", flush=True)
 ```
-
-### LangChain
-
-```python
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, SystemMessage
-
-llm = ChatOpenAI(
-    base_url="http://localhost:8000/v1",
-    api_key="not-needed",
-    model="gemma-4-e4b",
-)
-
-messages = [
-    SystemMessage(content="You are a helpful coding assistant."),
-    HumanMessage(content="Write a Python function to reverse a string."),
-]
-print(llm.invoke(messages).content)
-```
-
-### Request parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `model` | string | — | Model name (any string is accepted — only `gemma-4-e4b` is running) |
-| `messages` | array | — | Array of `{role, content}` objects. Roles: `system`, `user`, `assistant` |
-| `stream` | boolean | `false` | Return SSE chunks (`true`) or a single JSON response (`false`) |
-| `temperature` | float | `0.7` | Sampling temperature (0 = deterministic, 1 = creative) |
-| `max_tokens` | integer | `2048` | Maximum tokens to generate |
-
-> **Note:** `usage` (token counts) in the response is always `-1` — the Modal backend does not track token usage.
 
 ---
 
@@ -469,11 +292,11 @@ print(llm.invoke(messages).content)
 
 | Problem | Fix |
 |---------|-----|
-| `401 Unauthorized` on model download | Make sure you accepted the license at huggingface.co/google/gemma-4-E4B and the `HF_TOKEN` in your `huggingface` Modal secret is valid |
-| Vision badge shows grey | The health check couldn't reach Modal — check `MODAL_HEALTH_URL` in `.env` and that the backend is deployed |
-| Cold start takes a long time | Normal on first request after the container scales down — model loads from the volume (~30–60 seconds) |
-| `303 See Other` errors in server logs | Already fixed — `server.py` uses `follow_redirects=True` on all Modal requests |
-| Images not appearing in model response | Confirm the vision badge is green; check Modal container logs for `[setup] Model ready` |
+| `401 Unauthorized` on model download | Check `HF_TOKEN` in your `huggingface` Modal secret is valid |
+| Vision badge shows grey | Health check couldn't reach Modal — check `MODAL_HEALTH_URL` in `.env` |
+| Cold start takes a long time | Normal on first request — model loads from the volume (~30–60 seconds) |
+| `303 See Other` in server logs | Already fixed — `server.py` uses `follow_redirects=True` |
+| Image build fails (git not found) | The `apt_install("git")` step handles this automatically |
 
 ---
 
@@ -481,4 +304,4 @@ print(llm.invoke(messages).content)
 
 This project is released under the MIT License.
 
-The Gemma model weights are subject to Google's [Gemma Terms of Use](https://ai.google.dev/gemma/terms).
+The Qwen 3.5 model weights are released under the [Apache 2.0 License](https://huggingface.co/Qwen/Qwen3.5-4B).
