@@ -42,7 +42,7 @@ hf_image = (
     .pip_install(
         "torch",
         "torchvision",
-        "transformers>=4.51.0",   # Gemma4ForConditionalGeneration requires >=4.51
+        "transformers>=4.52.0",   # >=4.52 fixes Gemma4Processor.apply_chat_template bug
         "accelerate>=0.30.0",
         "bitsandbytes>=0.43.0",
         "pillow",
@@ -165,46 +165,20 @@ class GemmaService:
                             if max(img.size) > 1024:
                                 img.thumbnail((1024, 1024), Image.LANCZOS)
                             pil_images.append(img)
-                            img_parts.append({"type": "image"})
+                            # Embed PIL directly so apply_chat_template(tokenize=True)
+                            # can handle token count alignment internally (canonical API)
+                            img_parts.append({"type": "image", "image": img})
                 # Images must precede text in each turn for Gemma 4
                 hf_messages.append({"role": role, "content": img_parts + text_parts})
 
-        # Use apply_chat_template only for the text prompt (tokenize=False).
-        # Calling it with tokenize=True is broken for Gemma4Processor in
-        # transformers 4.51 — it passes 'images' twice → TypeError.
-        # Instead call processor() directly with the rendered text + PIL list.
-        try:
-            prompt = self.processor.apply_chat_template(
-                hf_messages,
-                add_generation_prompt=True,
-                tokenize=False,
-            )
-        except (ValueError, AttributeError):
-            try:
-                prompt = self.processor.tokenizer.apply_chat_template(
-                    hf_messages, tokenize=False, add_generation_prompt=True,
-                )
-            except (ValueError, AttributeError):
-                prompt = _build_gemma_prompt(hf_messages)
-
-        # The chat template inserts one <|image|> token per image, but Gemma 4
-        # needs image_seq_length soft tokens (280) per image so all patch embeddings
-        # map to token positions. Expand each placeholder before calling processor.
-        if pil_images:
-            IMAGE_TOKEN   = "<|image|>"
-            IMAGE_SEQ_LEN = getattr(
-                self.processor.image_processor, "image_seq_length",
-                getattr(self.processor, "image_seq_length", 280),
-            )
-            expanded_seq = IMAGE_TOKEN * IMAGE_SEQ_LEN
-            # Use a neutral temp marker to avoid self-referential replacement
-            _TEMP = "\x00IMG\x00"
-            prompt = prompt.replace(IMAGE_TOKEN, _TEMP)
-            prompt = prompt.replace(_TEMP, expanded_seq)
-
-        inputs = self.processor(
-            text=prompt,
-            images=pil_images if pil_images else None,
+        # Canonical Gemma 4 API: apply_chat_template with tokenize=True handles
+        # image token expansion (1 placeholder → N soft tokens) and pixel_values
+        # alignment in one coordinated step.
+        inputs = self.processor.apply_chat_template(
+            hf_messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
             return_tensors="pt",
         ).to(self.model.device)
 
